@@ -80,3 +80,21 @@ curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
 ```
 
 Metrics are available at `http://localhost:8000/metrics` and are scraped by Prometheus.
+
+## Traffic Burst Demo
+
+Use this endpoint when you want Grafana to show visible traffic:
+
+```bash
+curl -X POST http://localhost:8000/demo/messages/burst \
+  -H "Content-Type: application/json" \
+  -d '{
+    "count": 1000,
+    "sender": "12065550100",
+    "recipient_prefix": "1206555",
+    "text": "Grafana traffic demo",
+    "max_attempts": 100
+  }'
+```
+
+`max_attempts` is the retry limit for each message. It is not the number of messages to send.

@@ -8,6 +8,7 @@ from .db import connect, init_db
 from .metrics import (
     carrier_capacity,
     carrier_health,
+    messages_submitted,
     queue_depth,
     render_metrics,
 )
@@ -34,6 +35,20 @@ class MessageCreate(BaseModel):
     recipient: str = Field(..., examples=["12065550199"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str | None = Field(None, examples=["Demo MMS payload"])
+    max_attempts: int = Field(
+        config.DEFAULT_MAX_ATTEMPTS,
+        ge=1,
+        le=config.MAX_ATTEMPTS_LIMIT,
+        examples=[100],
+    )
+
+
+class BurstCreate(BaseModel):
+    count: int = Field(..., ge=1, le=5000, examples=[1000])
+    sender: str = Field("12065550100", examples=["12065550100"])
+    recipient_prefix: str = Field("1206555", examples=["1206555"])
+    media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
+    text: str = Field("Demo MMS payload", examples=["Demo MMS payload"])
     max_attempts: int = Field(
         config.DEFAULT_MAX_ATTEMPTS,
         ge=1,
@@ -74,6 +89,7 @@ def enqueue_message(payload: MessageCreate, response: Response):
         row, immediate_capacity = create_message(conn, payload.model_dump())
 
     if immediate_capacity:
+        messages_submitted.labels("accepted_for_delivery").inc()
         response.status_code = status.HTTP_202_ACCEPTED
         return {
             "message_id": row["id"],
@@ -83,6 +99,7 @@ def enqueue_message(payload: MessageCreate, response: Response):
             "delivery": "accepted_for_delivery",
         }
 
+    messages_submitted.labels("queued_due_to_carrier_backpressure").inc()
     response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
     return {
         "message_id": row["id"],
@@ -90,6 +107,49 @@ def enqueue_message(payload: MessageCreate, response: Response):
         "operator": "tmobile",
         "assigned_bind": row["carrier"],
         "delivery": "queued_due_to_carrier_backpressure",
+    }
+
+
+@app.post("/demo/messages/burst")
+def enqueue_message_burst(payload: BurstCreate, response: Response):
+    message_ids = []
+    accepted_for_delivery = 0
+    queued_due_to_backpressure = 0
+
+    with connect() as conn:
+        for index in range(payload.count):
+            message_payload = {
+                "sender": payload.sender,
+                "recipient": f"{payload.recipient_prefix}{index:04d}",
+                "media_url": payload.media_url,
+                "text": f"{payload.text} #{index + 1}",
+                "max_attempts": payload.max_attempts,
+            }
+            row, immediate_capacity = create_message(conn, message_payload)
+            message_ids.append(row["id"])
+            if immediate_capacity:
+                accepted_for_delivery += 1
+            else:
+                queued_due_to_backpressure += 1
+
+    messages_submitted.labels("accepted_for_delivery").inc(accepted_for_delivery)
+    messages_submitted.labels("queued_due_to_carrier_backpressure").inc(
+        queued_due_to_backpressure
+    )
+
+    if queued_due_to_backpressure:
+        response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    else:
+        response.status_code = status.HTTP_202_ACCEPTED
+
+    return {
+        "operator": "tmobile",
+        "requested": payload.count,
+        "enqueued": len(message_ids),
+        "accepted_for_delivery": accepted_for_delivery,
+        "queued_due_to_carrier_backpressure": queued_due_to_backpressure,
+        "first_message_id": message_ids[0],
+        "last_message_id": message_ids[-1],
     }
 
 

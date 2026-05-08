@@ -5,6 +5,11 @@ delivery_attempts = Counter(
     "Total carrier delivery attempts.",
     ["carrier"],
 )
+messages_submitted = Counter(
+    "mms_messages_submitted_total",
+    "Total T-Mobile operator-level messages accepted into PostgreSQL.",
+    ["result"],
+)
 delivered_total = Counter(
     "mms_delivered_total",
     "Total messages delivered to carriers.",
