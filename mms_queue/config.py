@@ -10,6 +10,7 @@ CARRIERS = [carrier.strip() for carrier in os.getenv("CARRIERS", "carrier1,carri
 
 DEFAULT_TPS_CAPACITY = int(os.getenv("DEFAULT_TPS_CAPACITY", "10"))
 DEFAULT_MAX_ATTEMPTS = int(os.getenv("DEFAULT_MAX_ATTEMPTS", "3"))
+MAX_ATTEMPTS_LIMIT = int(os.getenv("MAX_ATTEMPTS_LIMIT", "1000"))
 WORKER_POLL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "1"))
 WORKER_ID = os.getenv("WORKER_ID", "mms-worker")
 WORKER_CARRIER = os.getenv("WORKER_CARRIER", "carrier1")

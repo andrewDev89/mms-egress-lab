@@ -35,7 +35,12 @@ class MessageCreate(BaseModel):
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str | None = Field(None, examples=["Demo MMS payload"])
     carrier: str = Field("carrier1", examples=["carrier1"])
-    max_attempts: int = Field(config.DEFAULT_MAX_ATTEMPTS, ge=1, le=10)
+    max_attempts: int = Field(
+        config.DEFAULT_MAX_ATTEMPTS,
+        ge=1,
+        le=config.MAX_ATTEMPTS_LIMIT,
+        examples=[100],
+    )
 
 
 class CapacityUpdate(BaseModel):

@@ -1,3 +1,4 @@
+from mms_queue import config
 from mms_queue.repository import is_capacity_available, retry_delay_for_attempt
 
 
@@ -13,3 +14,7 @@ def test_retry_backoff_is_demo_friendly_and_capped():
     assert retry_delay_for_attempt(2) == 5
     assert retry_delay_for_attempt(3) == 10
     assert retry_delay_for_attempt(9) == 10
+
+
+def test_demo_max_attempts_accepts_large_retry_count():
+    assert config.MAX_ATTEMPTS_LIMIT >= 100
