@@ -11,6 +11,7 @@ docker compose up -d --build
 Useful local URLs:
 
 - MMS API: http://localhost:8000/docs
+- Demo control page: http://localhost:8000/demo/control
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3000
 - HAProxy stats: http://localhost:8404
