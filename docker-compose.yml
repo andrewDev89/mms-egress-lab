@@ -1,4 +1,71 @@
 services:
+  psql-mms:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mms
+      POSTGRES_PASSWORD: mms
+      POSTGRES_DB: psql_mms
+    ports:
+      - "15432:5432"
+    volumes:
+      - psql-mms-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mms -d psql_mms"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mms-api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+      CARRIERS: carrier1,carrier2
+      CARRIER1_URL: http://carrier1:8080
+      CARRIER2_URL: http://carrier2:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      carrier1:
+        condition: service_started
+      carrier2:
+        condition: service_started
+
+  worker-carrier1:
+    build: .
+    command: ["python", "-m", "mms_queue.worker"]
+    environment:
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+      CARRIERS: carrier1,carrier2
+      WORKER_CARRIER: carrier1
+      WORKER_ID: worker-carrier1
+      WORKER_METRICS_PORT: 9102
+      CARRIER1_URL: http://carrier1:8080
+      CARRIER2_URL: http://carrier2:8080
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      carrier1:
+        condition: service_started
+
+  worker-carrier2:
+    build: .
+    command: ["python", "-m", "mms_queue.worker"]
+    environment:
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+      CARRIERS: carrier1,carrier2
+      WORKER_CARRIER: carrier2
+      WORKER_ID: worker-carrier2
+      WORKER_METRICS_PORT: 9102
+      CARRIER1_URL: http://carrier1:8080
+      CARRIER2_URL: http://carrier2:8080
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      carrier2:
+        condition: service_started
+
   haproxy:
     image: haproxy:latest
     ports:
@@ -13,10 +80,16 @@ services:
       - carrier2
 
   carrier1:
-    image: nginx:latest
+    build: .
+    command: ["uvicorn", "mms_queue.carrier_mock:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      CARRIER_NAME: carrier1
 
   carrier2:
-    image: nginx:latest
+    build: .
+    command: ["uvicorn", "mms_queue.carrier_mock:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      CARRIER_NAME: carrier2
 
   haproxy-exporter:
     image: quay.io/prometheus/haproxy-exporter:latest
@@ -47,5 +120,6 @@ services:
       - prometheus
 
 volumes:
+  psql-mms-data:
   prometheus-data:
   grafana-data:

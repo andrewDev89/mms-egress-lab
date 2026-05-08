@@ -5,3 +5,15 @@ scrape_configs:
   - job_name: "haproxy"
     static_configs:
       - targets: ["haproxy-exporter:9101"]
+
+  - job_name: "mms-api"
+    static_configs:
+      - targets: ["mms-api:8000"]
+
+  - job_name: "mock-carriers"
+    static_configs:
+      - targets: ["carrier1:8080", "carrier2:8080"]
+
+  - job_name: "mms-workers"
+    static_configs:
+      - targets: ["worker-carrier1:9102", "worker-carrier2:9102"]
