@@ -11,8 +11,8 @@ HAPROXY_CFG = "haproxy.cfg"
 
 # Per-endpoint TPS capacity
 CAPACITY = {
-    "carrier1": 10,
-    "carrier2": 10,
+    "tmobile-sdg1": 10,
+    "tmobile-sdg2": 10,
 }
 
 POLL_SECONDS = 5
@@ -77,8 +77,8 @@ frontend fe_http
 backend carriers
     balance roundrobin
     option httpchk GET /
-    server carrier1 carrier1:80 check
-    server carrier2 carrier2:80 check
+    server tmobile-sdg1 tmobile-sdg1:80 check
+    server tmobile-sdg2 tmobile-sdg2:80 check
 
 listen stats
     bind *:8404

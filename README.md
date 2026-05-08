@@ -21,7 +21,7 @@ Useful local URLs:
 Set carrier capacity to zero:
 
 ```bash
-curl -X POST http://localhost:8000/carriers/carrier1/capacity \
+curl -X POST http://localhost:8000/carriers/tmobile-sdg1/capacity \
   -H "Content-Type: application/json" \
   -d '{"tps_capacity":0}'
 ```
@@ -36,14 +36,14 @@ curl -i -X POST http://localhost:8000/messages \
     "recipient": "12065550199",
     "media_url": "https://example.com/demo.jpg",
     "text": "queued demo",
-    "carrier": "carrier1"
+    "carrier": "tmobile-sdg1"
   }'
 ```
 
 Restore capacity and watch the worker drain the queue:
 
 ```bash
-curl -X POST http://localhost:8000/carriers/carrier1/capacity \
+curl -X POST http://localhost:8000/carriers/tmobile-sdg1/capacity \
   -H "Content-Type: application/json" \
   -d '{"tps_capacity":5}'
 ```
@@ -59,15 +59,15 @@ curl http://localhost:8000/messages/1
 Mark a carrier unhealthy, submit a message, then restore health:
 
 ```bash
-curl -X POST http://localhost:8000/carriers/carrier2/health \
+curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
   -H "Content-Type: application/json" \
   -d '{"healthy":false}'
 
 curl -X POST http://localhost:8000/messages \
   -H "Content-Type: application/json" \
-  -d '{"sender":"12065550100","recipient":"12065550200","text":"retry demo","carrier":"carrier2"}'
+  -d '{"sender":"12065550100","recipient":"12065550200","text":"retry demo","carrier":"tmobile-sdg2"}'
 
-curl -X POST http://localhost:8000/carriers/carrier2/health \
+curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
   -H "Content-Type: application/json" \
   -d '{"healthy":true}'
 ```

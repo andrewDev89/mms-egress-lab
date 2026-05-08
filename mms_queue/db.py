@@ -42,6 +42,11 @@ CREATE INDEX IF NOT EXISTS idx_messages_created_at
     ON messages (created_at DESC);
 """
 
+LEGACY_CARRIER_RENAMES = {
+    "carrier1": "tmobile-sdg1",
+    "carrier2": "tmobile-sdg2",
+}
+
 
 @contextmanager
 def connect():
@@ -68,6 +73,25 @@ def init_db():
         conn.execute("SELECT pg_advisory_lock(424242)")
         try:
             conn.execute(SCHEMA)
+            for old_carrier, new_carrier in LEGACY_CARRIER_RENAMES.items():
+                conn.execute(
+                    """
+                    INSERT INTO carrier_state (carrier, healthy, tps_capacity, updated_at)
+                    SELECT %s, healthy, tps_capacity, now()
+                    FROM carrier_state
+                    WHERE carrier = %s
+                    ON CONFLICT (carrier) DO NOTHING
+                    """,
+                    (new_carrier, old_carrier),
+                )
+                conn.execute(
+                    "UPDATE messages SET carrier = %s WHERE carrier = %s",
+                    (new_carrier, old_carrier),
+                )
+                conn.execute(
+                    "DELETE FROM carrier_state WHERE carrier = %s",
+                    (old_carrier,),
+                )
             for carrier in config.CARRIERS:
                 conn.execute(
                     """

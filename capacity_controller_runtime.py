@@ -14,8 +14,8 @@ RUNTIME_MAP_PATH = "/usr/local/etc/haproxy/capacity.map"
 LOCAL_MAP_PATH = "capacity.map"
 
 CAPACITY = {
-    "carrier1": 10,
-    "carrier2": 10,
+    "tmobile-sdg1": 10,
+    "tmobile-sdg2": 10,
 }
 
 RATE_WINDOW_SECONDS = 5

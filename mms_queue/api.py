@@ -34,7 +34,7 @@ class MessageCreate(BaseModel):
     recipient: str = Field(..., examples=["12065550199"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str | None = Field(None, examples=["Demo MMS payload"])
-    carrier: str = Field("carrier1", examples=["carrier1"])
+    carrier: str = Field("tmobile-sdg1", examples=["tmobile-sdg1"])
     max_attempts: int = Field(
         config.DEFAULT_MAX_ATTEMPTS,
         ge=1,
