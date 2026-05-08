@@ -32,6 +32,17 @@ def is_any_bind_available(conn):
     return row is not None
 
 
+def total_available_tps(conn):
+    row = conn.execute(
+        """
+        SELECT COALESCE(sum(tps_capacity), 0) AS total_tps
+        FROM carrier_state
+        WHERE healthy = TRUE
+        """
+    ).fetchone()
+    return row["total_tps"]
+
+
 def create_message(conn, payload):
     row = conn.execute(
         """
@@ -114,7 +125,7 @@ def list_messages(conn, status=None, carrier=None, limit=50):
     ).fetchall()
 
 
-def claim_next_message(conn, carrier, worker_id):
+def claim_next_message(conn, worker_id):
     row = conn.execute(
         """
         WITH next_message AS (
@@ -128,7 +139,7 @@ def claim_next_message(conn, carrier, worker_id):
         )
         UPDATE messages
         SET status = 'sending',
-            carrier = %s,
+            carrier = NULL,
             attempts = attempts + 1,
             locked_by = %s,
             locked_at = now(),
@@ -137,16 +148,17 @@ def claim_next_message(conn, carrier, worker_id):
         WHERE id = (SELECT id FROM next_message)
         RETURNING *
         """,
-        (carrier, worker_id),
+        (worker_id,),
     ).fetchone()
     return row
 
 
-def mark_delivered(conn, message_id):
+def mark_delivered(conn, message_id, carrier):
     return conn.execute(
         """
         UPDATE messages
         SET status = 'delivered',
+            carrier = %s,
             delivered_at = now(),
             locked_by = NULL,
             locked_at = NULL,
@@ -154,7 +166,7 @@ def mark_delivered(conn, message_id):
         WHERE id = %s
         RETURNING *
         """,
-        (message_id,),
+        (carrier, message_id),
     ).fetchone()
 
 

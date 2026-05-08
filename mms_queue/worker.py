@@ -16,15 +16,14 @@ from .metrics import (
 )
 from .repository import (
     claim_next_message,
-    get_carrier_state,
-    is_capacity_available,
     mark_delivered,
     mark_delivery_error,
+    total_available_tps,
 )
 
 
-def submit_to_carrier(message):
-    url = f"{config.CARRIER_URLS[message['carrier']]}/submit"
+def submit_to_haproxy(message):
+    url = f"{config.HAPROXY_EGRESS_URL}/submit"
     payload = json.dumps(
         {
             "message_id": message["id"],
@@ -43,57 +42,56 @@ def submit_to_carrier(message):
     with urllib.request.urlopen(request, timeout=5) as response:
         if response.status >= 300:
             raise RuntimeError(f"carrier returned HTTP {response.status}")
-        return response.read().decode()
+        return json.loads(response.read().decode())
 
 
-def run_once(carrier, worker_id):
+def run_once(worker_id):
     with connect() as conn:
-        state = get_carrier_state(conn, carrier)
-        if not is_capacity_available(state):
+        available_tps = total_available_tps(conn)
+        if available_tps <= 0:
             return "no_capacity"
 
-        message = claim_next_message(conn, carrier, worker_id)
+        message = claim_next_message(conn, worker_id)
         if message is None:
             return "idle"
 
-    delivery_attempts.labels(carrier).inc()
+    delivery_attempts.labels("haproxy").inc()
     try:
-        with worker_delivery_seconds.labels(carrier).time():
-            submit_to_carrier(message)
+        with worker_delivery_seconds.labels("haproxy").time():
+            carrier_response = submit_to_haproxy(message)
     except (urllib.error.URLError, TimeoutError, RuntimeError) as exc:
         with connect() as conn:
             updated = mark_delivery_error(conn, message, str(exc))
         if updated["status"] == "failed":
-            failed_total.labels(carrier).inc()
-            return "failed"
-        retry_total.labels(carrier).inc()
-        return "retry"
+            failed_total.labels("haproxy").inc()
+            return "failed", available_tps
+        retry_total.labels("haproxy").inc()
+        return "retry", available_tps
 
+    accepted_bind = carrier_response.get("carrier", "unknown")
     with connect() as conn:
-        mark_delivered(conn, message["id"])
-    delivered_total.labels(carrier).inc()
-    return "delivered"
+        mark_delivered(conn, message["id"], accepted_bind)
+    delivered_total.labels(accepted_bind).inc()
+    return "delivered", available_tps
 
 
 def main():
     init_db()
-    carrier = config.WORKER_CARRIER
     worker_id = config.WORKER_ID
     start_http_server(config.WORKER_METRICS_PORT)
     print(
-        f"worker started | carrier={carrier} worker_id={worker_id} "
+        f"worker started | operator={config.WORKER_OPERATOR} "
+        f"egress_url={config.HAPROXY_EGRESS_URL} worker_id={worker_id} "
         f"metrics_port={config.WORKER_METRICS_PORT}",
         flush=True,
     )
     while True:
-        result = run_once(carrier, worker_id)
+        result = run_once(worker_id)
         if result in {"idle", "no_capacity"}:
             time.sleep(config.WORKER_POLL_SECONDS)
         else:
-            with connect() as conn:
-                state = get_carrier_state(conn, carrier)
-            tps_capacity = max(1, state["tps_capacity"] if state else 1)
-            time.sleep(1 / tps_capacity)
+            _status, available_tps = result
+            time.sleep(1 / max(1, available_tps))
 
 
 if __name__ == "__main__":

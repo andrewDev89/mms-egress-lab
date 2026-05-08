@@ -1,4 +1,5 @@
 import json
+import socket
 import urllib.error
 import urllib.request
 from typing import Literal
@@ -25,6 +26,7 @@ from .repository import (
     queue_depths,
     set_carrier_capacity,
     set_carrier_health,
+    total_available_tps,
 )
 
 app = FastAPI(
@@ -98,6 +100,43 @@ def sync_mock_bind_health(carrier, healthy):
             status_code=502,
             detail=f"carrier state saved, but mock bind health sync failed: {exc}",
         ) from exc
+
+
+def haproxy_runtime_cmd(command):
+    with socket.create_connection(
+        (config.HAPROXY_RUNTIME_HOST, config.HAPROXY_RUNTIME_PORT),
+        timeout=3,
+    ) as sock:
+        sock.sendall((command + "\n").encode())
+        sock.shutdown(socket.SHUT_WR)
+        return sock.recv(4096).decode(errors="replace").strip()
+
+
+def sync_haproxy_capacity(total_tps):
+    threshold = total_tps * config.HAPROXY_RATE_WINDOW_SECONDS
+    command = (
+        f"set map {config.HAPROXY_CAPACITY_MAP} "
+        f"{config.HAPROXY_CAPACITY_KEY} {threshold}"
+    )
+    response = haproxy_runtime_cmd(command)
+
+    if "entry not found" in response.lower():
+        response = haproxy_runtime_cmd(
+            f"add map {config.HAPROXY_CAPACITY_MAP} "
+            f"{config.HAPROXY_CAPACITY_KEY} {threshold}"
+        )
+
+    if "error" in response.lower() or "not found" in response.lower():
+        raise HTTPException(
+            status_code=502,
+            detail=f"HAProxy capacity sync failed: {response}",
+        )
+
+    return {
+        "allowed_tps": total_tps,
+        "haproxy_threshold": threshold,
+        "haproxy_response": response,
+    }
 
 
 @app.on_event("startup")
@@ -515,21 +554,29 @@ def read_carriers():
 def update_capacity(carrier: str, payload: CapacityUpdate):
     with connect() as conn:
         row = set_carrier_capacity(conn, carrier, payload.tps_capacity)
+        total_tps = total_available_tps(conn)
     if row is None:
         raise HTTPException(status_code=404, detail="carrier not found")
+    haproxy_state = sync_haproxy_capacity(total_tps)
     carrier_capacity.labels(carrier).set(payload.tps_capacity)
-    return serialize(row)
+    data = serialize(row)
+    data["haproxy"] = haproxy_state
+    return data
 
 
 @app.post("/carriers/{carrier}/health")
 def update_health(carrier: str, payload: HealthUpdate):
     with connect() as conn:
         row = set_carrier_health(conn, carrier, payload.healthy)
+        total_tps = total_available_tps(conn)
     if row is None:
         raise HTTPException(status_code=404, detail="carrier not found")
     sync_mock_bind_health(carrier, payload.healthy)
+    haproxy_state = sync_haproxy_capacity(total_tps)
     carrier_health.labels(carrier).set(1 if payload.healthy else 0)
-    return serialize(row)
+    data = serialize(row)
+    data["haproxy"] = haproxy_state
+    return data
 
 
 @app.get("/metrics")

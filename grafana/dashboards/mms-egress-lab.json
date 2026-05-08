@@ -193,8 +193,8 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier) (rate(mms_delivery_attempts_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))",
-          "legendFormat": "{{carrier}} attempts/sec",
+          "expr": "sum(rate(mms_delivery_attempts_total{carrier=\"haproxy\"}[$__rate_interval]))",
+          "legendFormat": "HAProxy egress attempts/sec",
           "range": true,
           "refId": "A"
         },

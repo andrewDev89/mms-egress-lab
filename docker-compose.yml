@@ -20,6 +20,8 @@ services:
     environment:
       DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
       CARRIERS: tmobile-sdg1,tmobile-sdg2
+      HAPROXY_RUNTIME_HOST: haproxy
+      HAPROXY_RUNTIME_PORT: 9999
       TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
       TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
     ports:
@@ -31,39 +33,27 @@ services:
         condition: service_started
       tmobile-sdg2:
         condition: service_started
-
-  worker-tmobile-sdg1:
-    build: .
-    command: ["python", "-m", "mms_queue.worker"]
-    environment:
-      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
-      CARRIERS: tmobile-sdg1,tmobile-sdg2
-      WORKER_CARRIER: tmobile-sdg1
-      WORKER_ID: worker-tmobile-sdg1
-      WORKER_METRICS_PORT: 9102
-      TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
-      TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
-    depends_on:
-      psql-mms:
-        condition: service_healthy
-      tmobile-sdg1:
+      haproxy:
         condition: service_started
 
-  worker-tmobile-sdg2:
+  worker-tmobile-egress:
     build: .
     command: ["python", "-m", "mms_queue.worker"]
     environment:
       DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
       CARRIERS: tmobile-sdg1,tmobile-sdg2
-      WORKER_CARRIER: tmobile-sdg2
-      WORKER_ID: worker-tmobile-sdg2
+      WORKER_OPERATOR: tmobile
+      WORKER_ID: worker-tmobile-egress
       WORKER_METRICS_PORT: 9102
+      HAPROXY_EGRESS_URL: http://haproxy:8080
+      HAPROXY_RUNTIME_HOST: haproxy
+      HAPROXY_RUNTIME_PORT: 9999
       TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
       TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
     depends_on:
       psql-mms:
         condition: service_healthy
-      tmobile-sdg2:
+      haproxy:
         condition: service_started
 
   haproxy:

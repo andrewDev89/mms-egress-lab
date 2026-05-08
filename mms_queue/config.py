@@ -17,8 +17,17 @@ DEFAULT_MAX_ATTEMPTS = int(os.getenv("DEFAULT_MAX_ATTEMPTS", "3"))
 MAX_ATTEMPTS_LIMIT = int(os.getenv("MAX_ATTEMPTS_LIMIT", "1000"))
 WORKER_POLL_SECONDS = float(os.getenv("WORKER_POLL_SECONDS", "1"))
 WORKER_ID = os.getenv("WORKER_ID", "mms-worker")
-WORKER_CARRIER = os.getenv("WORKER_CARRIER", "tmobile-sdg1")
+WORKER_OPERATOR = os.getenv("WORKER_OPERATOR", "tmobile")
 WORKER_METRICS_PORT = int(os.getenv("WORKER_METRICS_PORT", "9102"))
+HAPROXY_EGRESS_URL = os.getenv("HAPROXY_EGRESS_URL", "http://haproxy:8080")
+HAPROXY_RUNTIME_HOST = os.getenv("HAPROXY_RUNTIME_HOST", "haproxy")
+HAPROXY_RUNTIME_PORT = int(os.getenv("HAPROXY_RUNTIME_PORT", "9999"))
+HAPROXY_RATE_WINDOW_SECONDS = int(os.getenv("HAPROXY_RATE_WINDOW_SECONDS", "5"))
+HAPROXY_CAPACITY_MAP = os.getenv(
+    "HAPROXY_CAPACITY_MAP",
+    "/usr/local/etc/haproxy/capacity.map",
+)
+HAPROXY_CAPACITY_KEY = os.getenv("HAPROXY_CAPACITY_KEY", "1")
 
 
 def carrier_env_key(carrier):

@@ -1,6 +1,14 @@
 # MMS Egress Queue Lab
 
-Production-flavored MMS egress demo with HAProxy, PostgreSQL, FastAPI, per-carrier workers, mock carriers, Prometheus, and Grafana.
+Production-flavored MMS egress demo with HAProxy, PostgreSQL, FastAPI, one T-Mobile operator worker, mock SDG binds, Prometheus, and Grafana.
+
+Message flow:
+
+```text
+MMSC API -> PostgreSQL queue -> T-Mobile egress worker -> HAProxy -> tmobile-sdg1 / tmobile-sdg2
+```
+
+The queue stores operator-level T-Mobile work. HAProxy owns the final SDG bind decision and failover.
 
 ## Run
 
@@ -44,7 +52,7 @@ curl -i -X POST http://localhost:8000/messages \
   }'
 ```
 
-Restore capacity and watch the worker drain the queue:
+Restore capacity and watch the worker drain the queue through HAProxy:
 
 ```bash
 curl -X POST http://localhost:8000/carriers/tmobile-sdg1/capacity \
@@ -64,7 +72,7 @@ curl http://localhost:8000/messages/1
 
 ## Retry Demo
 
-Mark one T-Mobile SDG bind unhealthy, submit a message without choosing a bind, and watch the other bind deliver it:
+Mark one T-Mobile SDG bind unhealthy, submit a message without choosing a bind, and watch HAProxy send it through the remaining healthy bind:
 
 ```bash
 curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
