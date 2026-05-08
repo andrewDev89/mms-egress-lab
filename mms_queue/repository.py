@@ -19,17 +19,26 @@ def is_capacity_available(carrier_state):
     return bool(carrier_state and carrier_state["healthy"] and carrier_state["tps_capacity"] > 0)
 
 
-def create_message(conn, payload):
-    carrier_state = get_carrier_state(conn, payload["carrier"])
-    if carrier_state is None:
-        raise ValueError(f"unknown carrier: {payload['carrier']}")
+def is_any_bind_available(conn):
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM carrier_state
+        WHERE healthy = TRUE
+          AND tps_capacity > 0
+        LIMIT 1
+        """
+    ).fetchone()
+    return row is not None
 
+
+def create_message(conn, payload):
     row = conn.execute(
         """
         INSERT INTO messages (
-            sender, recipient, media_url, text, carrier, status, max_attempts, accepted_at
+            sender, recipient, media_url, text, status, max_attempts, accepted_at
         )
-        VALUES (%s, %s, %s, %s, %s, 'queued', %s, now())
+        VALUES (%s, %s, %s, %s, 'queued', %s, now())
         RETURNING *
         """,
         (
@@ -37,12 +46,11 @@ def create_message(conn, payload):
             payload["recipient"],
             payload.get("media_url"),
             payload.get("text"),
-            payload["carrier"],
             payload.get("max_attempts", config.DEFAULT_MAX_ATTEMPTS),
         ),
     ).fetchone()
 
-    return row, is_capacity_available(carrier_state)
+    return row, is_any_bind_available(conn)
 
 
 def get_carrier_state(conn, carrier):
@@ -112,8 +120,7 @@ def claim_next_message(conn, carrier, worker_id):
         WITH next_message AS (
             SELECT id
             FROM messages
-            WHERE carrier = %s
-              AND status IN ('queued', 'retry')
+            WHERE status IN ('queued', 'retry')
               AND next_attempt_at <= now()
             ORDER BY created_at
             FOR UPDATE SKIP LOCKED
@@ -121,6 +128,7 @@ def claim_next_message(conn, carrier, worker_id):
         )
         UPDATE messages
         SET status = 'sending',
+            carrier = %s,
             attempts = attempts + 1,
             locked_by = %s,
             locked_at = now(),
@@ -155,16 +163,19 @@ def mark_delivery_error(conn, message, error):
         status = "failed"
         next_attempt_sql = "next_attempt_at"
         params = (status, error, message["id"])
+        carrier_sql = "carrier"
     else:
         status = "retry"
         delay = retry_delay_for_attempt(message["attempts"])
         next_attempt_sql = "now() + (%s * interval '1 second')"
         params = (status, error, delay, message["id"])
+        carrier_sql = "NULL"
 
     return conn.execute(
         f"""
         UPDATE messages
         SET status = %s,
+            carrier = {carrier_sql},
             last_error = %s,
             next_attempt_at = {next_attempt_sql},
             locked_by = NULL,
@@ -180,10 +191,10 @@ def mark_delivery_error(conn, message, error):
 def queue_depths(conn):
     rows = conn.execute(
         """
-        SELECT carrier, status, count(*) AS depth
+        SELECT COALESCE(carrier, 'unassigned') AS carrier, status, count(*) AS depth
         FROM messages
-        GROUP BY carrier, status
-        ORDER BY carrier, status
+        GROUP BY COALESCE(carrier, 'unassigned'), status
+        ORDER BY COALESCE(carrier, 'unassigned'), status
         """
     ).fetchall()
     return rows

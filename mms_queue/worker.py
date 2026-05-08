@@ -49,20 +49,12 @@ def submit_to_carrier(message):
 def run_once(carrier, worker_id):
     with connect() as conn:
         state = get_carrier_state(conn, carrier)
-        if state is None or state["tps_capacity"] <= 0:
+        if not is_capacity_available(state):
             return "no_capacity"
 
         message = claim_next_message(conn, carrier, worker_id)
         if message is None:
             return "idle"
-
-        if not state["healthy"]:
-            updated = mark_delivery_error(conn, message, "carrier marked unhealthy")
-            if updated["status"] == "failed":
-                failed_total.labels(carrier).inc()
-                return "failed"
-            retry_total.labels(carrier).inc()
-            return "retry"
 
     delivery_attempts.labels(carrier).inc()
     try:

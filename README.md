@@ -18,10 +18,14 @@ Useful local URLs:
 
 ## Backpressure Demo
 
-Set carrier capacity to zero:
+Set both T-Mobile SDG bind capacities to zero:
 
 ```bash
 curl -X POST http://localhost:8000/carriers/tmobile-sdg1/capacity \
+  -H "Content-Type: application/json" \
+  -d '{"tps_capacity":0}'
+
+curl -X POST http://localhost:8000/carriers/tmobile-sdg2/capacity \
   -H "Content-Type: application/json" \
   -d '{"tps_capacity":0}'
 ```
@@ -35,8 +39,7 @@ curl -i -X POST http://localhost:8000/messages \
     "sender": "12065550100",
     "recipient": "12065550199",
     "media_url": "https://example.com/demo.jpg",
-    "text": "queued demo",
-    "carrier": "tmobile-sdg1"
+    "text": "queued demo"
   }'
 ```
 
@@ -44,6 +47,10 @@ Restore capacity and watch the worker drain the queue:
 
 ```bash
 curl -X POST http://localhost:8000/carriers/tmobile-sdg1/capacity \
+  -H "Content-Type: application/json" \
+  -d '{"tps_capacity":5}'
+
+curl -X POST http://localhost:8000/carriers/tmobile-sdg2/capacity \
   -H "Content-Type: application/json" \
   -d '{"tps_capacity":5}'
 ```
@@ -56,7 +63,7 @@ curl http://localhost:8000/messages/1
 
 ## Retry Demo
 
-Mark a carrier unhealthy, submit a message, then restore health:
+Mark one T-Mobile SDG bind unhealthy, submit a message without choosing a bind, and watch the other bind deliver it:
 
 ```bash
 curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
@@ -65,7 +72,7 @@ curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
 
 curl -X POST http://localhost:8000/messages \
   -H "Content-Type: application/json" \
-  -d '{"sender":"12065550100","recipient":"12065550200","text":"retry demo","carrier":"tmobile-sdg2"}'
+  -d '{"sender":"12065550100","recipient":"12065550200","text":"failover demo"}'
 
 curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
   -H "Content-Type: application/json" \

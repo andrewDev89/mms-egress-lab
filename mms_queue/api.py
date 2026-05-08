@@ -34,7 +34,6 @@ class MessageCreate(BaseModel):
     recipient: str = Field(..., examples=["12065550199"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str | None = Field(None, examples=["Demo MMS payload"])
-    carrier: str = Field("tmobile-sdg1", examples=["tmobile-sdg1"])
     max_attempts: int = Field(
         config.DEFAULT_MAX_ATTEMPTS,
         ge=1,
@@ -57,6 +56,13 @@ def serialize(row):
     return dict(row)
 
 
+def serialize_message(row):
+    data = serialize(row)
+    data["operator"] = "tmobile"
+    data["assigned_bind"] = data.pop("carrier")
+    return data
+
+
 @app.on_event("startup")
 def startup():
     init_db()
@@ -65,17 +71,15 @@ def startup():
 @app.post("/messages")
 def enqueue_message(payload: MessageCreate, response: Response):
     with connect() as conn:
-        try:
-            row, immediate_capacity = create_message(conn, payload.model_dump())
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        row, immediate_capacity = create_message(conn, payload.model_dump())
 
     if immediate_capacity:
         response.status_code = status.HTTP_202_ACCEPTED
         return {
             "message_id": row["id"],
             "status": row["status"],
-            "carrier": row["carrier"],
+            "operator": "tmobile",
+            "assigned_bind": row["carrier"],
             "delivery": "accepted_for_delivery",
         }
 
@@ -83,7 +87,8 @@ def enqueue_message(payload: MessageCreate, response: Response):
     return {
         "message_id": row["id"],
         "status": row["status"],
-        "carrier": row["carrier"],
+        "operator": "tmobile",
+        "assigned_bind": row["carrier"],
         "delivery": "queued_due_to_carrier_backpressure",
     }
 
@@ -94,7 +99,7 @@ def read_message(message_id: int):
         row = get_message(conn, message_id)
     if row is None:
         raise HTTPException(status_code=404, detail="message not found")
-    return serialize(row)
+    return serialize_message(row)
 
 
 @app.get("/messages")
@@ -102,12 +107,12 @@ def read_messages(
     status_filter: Literal["queued", "sending", "retry", "delivered", "failed"] | None = Query(
         None, alias="status"
     ),
-    carrier: str | None = None,
+    bind: str | None = None,
     limit: int = Query(50, ge=1, le=200),
 ):
     with connect() as conn:
-        rows = list_messages(conn, status=status_filter, carrier=carrier, limit=limit)
-    return [serialize(row) for row in rows]
+        rows = list_messages(conn, status=status_filter, carrier=bind, limit=limit)
+    return [serialize_message(row) for row in rows]
 
 
 @app.get("/carriers")

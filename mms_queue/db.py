@@ -21,7 +21,7 @@ CREATE TABLE IF NOT EXISTS messages (
     recipient TEXT NOT NULL,
     media_url TEXT,
     text TEXT,
-    carrier TEXT NOT NULL REFERENCES carrier_state(carrier),
+    carrier TEXT REFERENCES carrier_state(carrier),
     status TEXT NOT NULL CHECK (status IN ('queued', 'sending', 'retry', 'delivered', 'failed')),
     attempts INTEGER NOT NULL DEFAULT 0,
     max_attempts INTEGER NOT NULL DEFAULT 3,
@@ -73,6 +73,7 @@ def init_db():
         conn.execute("SELECT pg_advisory_lock(424242)")
         try:
             conn.execute(SCHEMA)
+            conn.execute("ALTER TABLE messages ALTER COLUMN carrier DROP NOT NULL")
             for old_carrier, new_carrier in LEGACY_CARRIER_RENAMES.items():
                 conn.execute(
                     """
