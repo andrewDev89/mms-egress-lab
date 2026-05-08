@@ -210,3 +210,8 @@ def queue_depths(conn):
         """
     ).fetchall()
     return rows
+
+
+def clear_messages(conn):
+    row = conn.execute("DELETE FROM messages RETURNING id").fetchall()
+    return len(row)

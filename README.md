@@ -107,3 +107,9 @@ curl -X POST http://localhost:8000/demo/messages/burst \
 ```
 
 `max_attempts` is the retry limit for each message. It is not the number of messages to send.
+
+Clear all demo messages and reset queue depth:
+
+```bash
+curl -X POST http://localhost:8000/demo/messages/clear
+```

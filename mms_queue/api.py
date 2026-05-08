@@ -19,6 +19,7 @@ from .metrics import (
 )
 from .repository import (
     create_message,
+    clear_messages,
     get_carrier_state,
     get_message,
     list_carriers,
@@ -214,6 +215,22 @@ def enqueue_message_burst(payload: BurstCreate, response: Response):
     }
 
 
+@app.post("/demo/messages/clear")
+def clear_demo_messages():
+    with connect() as conn:
+        deleted = clear_messages(conn)
+
+    for carrier in [*config.CARRIERS, "unassigned"]:
+        for message_status in ("queued", "sending", "retry", "delivered", "failed"):
+            queue_depth.labels(carrier, message_status).set(0)
+
+    return {
+        "operator": "tmobile",
+        "deleted_messages": deleted,
+        "note": "Prometheus counters remain historical; queue depth resets on the next scrape.",
+    }
+
+
 @app.get("/demo/control", response_class=HTMLResponse)
 def demo_control():
     return """
@@ -355,6 +372,10 @@ def demo_control():
       gap: 10px;
       margin-top: 16px;
     }
+    .danger-wide {
+      width: 100%;
+      margin-top: 12px;
+    }
     .links a {
       border: 1px solid #344459;
       border-radius: 6px;
@@ -404,6 +425,7 @@ def demo_control():
         <input id="burstCount" type="number" min="1" max="5000" value="1000">
         <button onclick="sendBurst()">Send Burst</button>
       </div>
+      <button class="danger danger-wide" onclick="clearQueue()">Clear Queue</button>
       <div class="links">
         <a href="/docs" target="_blank">API Docs</a>
         <a href="http://localhost:3000/d/mms-egress-tmobile/mms-egress-lab-t-mobile-queue" target="_blank">Grafana Dashboard</a>
@@ -509,6 +531,23 @@ def demo_control():
           })
         });
         writeLog(result);
+      } catch (error) {
+        writeLog(error.message);
+      }
+    }
+
+    async function clearQueue() {
+      const ok = window.confirm("Clear all demo messages from PostgreSQL?");
+      if (!ok) {
+        return;
+      }
+      try {
+        const result = await api("/demo/messages/clear", {
+          method: "POST",
+          body: "{}"
+        });
+        writeLog(result);
+        await refreshState();
       } catch (error) {
         writeLog(error.message);
       }
