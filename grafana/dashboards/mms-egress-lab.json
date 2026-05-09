@@ -269,13 +269,13 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "max by (carrier, status) (max_over_time(mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2|unassigned\",status=~\"queued|sending|retry\"}[1m]))",
-          "legendFormat": "{{carrier}} {{status}}",
+          "expr": "sum(max_over_time(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}[1m]))",
+          "legendFormat": "T-Mobile backlog before HAProxy",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "PostgreSQL Active Queue Peak (Last 1m)",
+      "title": "T-Mobile Queue Backlog Before HAProxy (Last 1m Peak)",
       "type": "bargauge"
     },
     {
@@ -546,5 +546,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 1
+  "version": 2
 }
