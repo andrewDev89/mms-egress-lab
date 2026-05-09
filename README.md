@@ -90,6 +90,15 @@ curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
 
 Metrics are available at `http://localhost:8000/metrics` and are scraped by Prometheus.
 
+## Queue Age Alerts
+
+Prometheus loads demo alert rules for the oldest active queue entry:
+
+- `MmsQueueOldestAgeWarning`: fires when the oldest queued/sending/retry message is older than 60 seconds.
+- `MmsQueueOldestAgeCritical`: fires when the oldest queued/sending/retry message is older than 5 minutes.
+
+Open `http://localhost:9090/alerts` to see alert state during a backlog demo. Grafana also includes an `Oldest Queue Age` panel with matching green/yellow/red thresholds.
+
 ## Traffic Burst Demo
 
 Use this endpoint when you want Grafana to show visible traffic:

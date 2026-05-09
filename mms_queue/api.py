@@ -15,6 +15,7 @@ from .metrics import (
     carrier_health,
     messages_submitted,
     queue_depth,
+    queue_oldest_age,
     render_metrics,
 )
 from .repository import (
@@ -25,6 +26,7 @@ from .repository import (
     list_carriers,
     list_messages,
     queue_depths,
+    queue_oldest_ages,
     set_carrier_capacity,
     set_carrier_health,
     total_available_tps,
@@ -228,6 +230,7 @@ def clear_demo_messages():
     for carrier in [*config.CARRIERS, "unassigned"]:
         for message_status in ("queued", "sending", "retry", "delivered", "failed"):
             queue_depth.labels(carrier, message_status).set(0)
+            queue_oldest_age.labels(carrier, message_status).set(0)
 
     return {
         "operator": "tmobile",
@@ -640,6 +643,17 @@ def metrics():
             for message_status in ("queued", "sending", "retry", "delivered", "failed"):
                 if (carrier, message_status) not in seen:
                     queue_depth.labels(carrier, message_status).set(0)
+
+        seen_age = set()
+        for row in queue_oldest_ages(conn):
+            labels = (row["carrier"], row["status"])
+            seen_age.add(labels)
+            queue_oldest_age.labels(*labels).set(float(row["age_seconds"]))
+
+        for carrier in [*config.CARRIERS, "unassigned"]:
+            for message_status in ("queued", "sending", "retry"):
+                if (carrier, message_status) not in seen_age:
+                    queue_oldest_age.labels(carrier, message_status).set(0)
 
     body, content_type = render_metrics()
     return Response(content=body, media_type=content_type)

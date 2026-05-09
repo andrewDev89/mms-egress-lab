@@ -353,6 +353,79 @@
     {
       "datasource": {
         "type": "prometheus",
+        "uid": "dflck6ecqc5c0d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 14
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dflck6ecqc5c0d"
+          },
+          "editorMode": "code",
+          "expr": "max(mms_queue_oldest_age_seconds{carrier=\"unassigned\",status=~\"queued|sending|retry\"})",
+          "legendFormat": "Oldest active queue age",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Oldest Queue Age",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
           "uid": "dflck6ecqc5c0d"
       },
       "fieldConfig": {
@@ -377,7 +450,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 14
+        "y": 18
       },
       "id": 4,
       "options": {
@@ -441,7 +514,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 19
+        "y": 23
       },
       "id": 6,
       "options": {
@@ -618,5 +691,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 5
+  "version": 6
 }

@@ -30,6 +30,11 @@ queue_depth = Gauge(
     "Messages in PostgreSQL by carrier and status.",
     ["carrier", "status"],
 )
+queue_oldest_age = Gauge(
+    "mms_queue_oldest_age_seconds",
+    "Age in seconds of the oldest active PostgreSQL queue entry by carrier and status.",
+    ["carrier", "status"],
+)
 carrier_health = Gauge(
     "mms_carrier_healthy",
     "Carrier health state, 1 for healthy and 0 for unhealthy.",

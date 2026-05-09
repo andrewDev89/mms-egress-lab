@@ -212,6 +212,22 @@ def queue_depths(conn):
     return rows
 
 
+def queue_oldest_ages(conn):
+    rows = conn.execute(
+        """
+        SELECT
+            COALESCE(carrier, 'unassigned') AS carrier,
+            status,
+            EXTRACT(EPOCH FROM now() - min(created_at)) AS age_seconds
+        FROM messages
+        WHERE status IN ('queued', 'sending', 'retry')
+        GROUP BY COALESCE(carrier, 'unassigned'), status
+        ORDER BY COALESCE(carrier, 'unassigned'), status
+        """
+    ).fetchall()
+    return rows
+
+
 def clear_messages(conn):
     row = conn.execute("DELETE FROM messages RETURNING id").fetchall()
     return len(row)

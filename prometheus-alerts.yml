@@ -1,0 +1,20 @@
+groups:
+  - name: mms-queue-age
+    rules:
+      - alert: MmsQueueOldestAgeWarning
+        expr: max(mms_queue_oldest_age_seconds{status=~"queued|sending|retry"}) > 60
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "MMS queue oldest message age is elevated"
+          description: "The oldest active MMS queue entry has been waiting for more than 60 seconds."
+
+      - alert: MmsQueueOldestAgeCritical
+        expr: max(mms_queue_oldest_age_seconds{status=~"queued|sending|retry"}) > 300
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "MMS queue oldest message age is critical"
+          description: "The oldest active MMS queue entry has been waiting for more than 5 minutes."
