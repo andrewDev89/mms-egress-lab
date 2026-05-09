@@ -289,39 +289,6 @@
             "mode": "thresholds"
           },
           "decimals": 2,
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": true,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "bars",
-            "fillOpacity": 35,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "area"
-            }
-          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -347,19 +314,21 @@
       },
       "id": 7,
       "options": {
-        "legend": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
-          "displayMode": "table",
-          "placement": "bottom",
-          "showLegend": true
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        }
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -370,13 +339,13 @@
           },
           "editorMode": "code",
           "expr": "sum(rate(mms_messages_submitted_total[$__rate_interval])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))",
-          "legendFormat": "Net queue rate",
-          "range": true,
+          "legendFormat": "Net queue growth",
+          "range": false,
           "refId": "A"
         }
       ],
-      "title": "Queue Net Rate",
-      "type": "timeseries"
+      "title": "Queue Net Growth Rate",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -857,5 +826,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 9
+  "version": 10
 }
