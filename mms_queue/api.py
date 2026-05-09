@@ -194,6 +194,11 @@ def enqueue_message_burst(payload: BurstCreate, response: Response):
             else:
                 queued_due_to_backpressure += 1
 
+            if (index + 1) % config.BURST_COMMIT_INTERVAL == 0:
+                conn.commit()
+
+        conn.commit()
+
     messages_submitted.labels("accepted_for_delivery").inc(accepted_for_delivery)
     messages_submitted.labels("queued_due_to_carrier_backpressure").inc(
         queued_due_to_backpressure
@@ -631,7 +636,7 @@ def metrics():
             seen.add(labels)
             queue_depth.labels(*labels).set(row["depth"])
 
-        for carrier in config.CARRIERS:
+        for carrier in [*config.CARRIERS, "unassigned"]:
             for message_status in ("queued", "sending", "retry", "delivered", "failed"):
                 if (carrier, message_status) not in seen:
                     queue_depth.labels(carrier, message_status).set(0)

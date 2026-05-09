@@ -269,13 +269,13 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier, status) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2|unassigned\",status=~\"queued|sending|retry\"})",
+          "expr": "max by (carrier, status) (max_over_time(mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2|unassigned\",status=~\"queued|sending|retry\"}[1m]))",
           "legendFormat": "{{carrier}} {{status}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "PostgreSQL Active Queue",
+      "title": "PostgreSQL Active Queue Peak (Last 1m)",
       "type": "bargauge"
     },
     {
