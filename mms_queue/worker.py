@@ -2,6 +2,7 @@ import json
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from prometheus_client import start_http_server
 
@@ -15,8 +16,8 @@ from .metrics import (
     worker_delivery_seconds,
 )
 from .repository import (
-    claim_next_message,
-    mark_delivered,
+    claim_messages,
+    mark_delivered_many,
     mark_delivery_error,
     total_available_tps,
 )
@@ -45,34 +46,63 @@ def submit_to_haproxy(message):
         return json.loads(response.read().decode())
 
 
-def run_once(worker_id):
-    with connect() as conn:
-        available_tps = total_available_tps(conn)
-        if available_tps <= 0:
-            return "no_capacity"
-
-        message = claim_next_message(conn, worker_id)
-        if message is None:
-            return "idle"
-
+def process_message(message):
     delivery_attempts.labels("haproxy").inc()
     try:
         with worker_delivery_seconds.labels("haproxy").time():
             carrier_response = submit_to_haproxy(message)
     except (urllib.error.URLError, TimeoutError, RuntimeError) as exc:
-        with connect() as conn:
-            updated = mark_delivery_error(conn, message, str(exc))
-        if updated["status"] == "failed":
-            failed_total.labels("haproxy").inc()
-            return "failed", available_tps
-        retry_total.labels("haproxy").inc()
-        return "retry", available_tps
+        return {
+            "status": "error",
+            "message": message,
+            "error": str(exc),
+        }
 
     accepted_bind = carrier_response.get("carrier", "unknown")
+    return {
+        "status": "delivered",
+        "message": message,
+        "carrier": accepted_bind,
+    }
+
+
+def run_batch(worker_id, executor):
     with connect() as conn:
-        mark_delivered(conn, message["id"], accepted_bind)
-    delivered_total.labels(accepted_bind).inc()
-    return "delivered", available_tps
+        available_tps = total_available_tps(conn)
+        if available_tps <= 0:
+            return "no_capacity", 0
+
+        batch_size = max(1, min(available_tps, config.WORKER_BATCH_SIZE))
+        messages = claim_messages(conn, worker_id, batch_size)
+        if not messages:
+            return "idle", available_tps
+
+    futures = [executor.submit(process_message, message) for message in messages]
+    delivered_by_carrier = {}
+    errors = []
+
+    for future in as_completed(futures):
+        result = future.result()
+        message = result["message"]
+        if result["status"] == "delivered":
+            delivered_by_carrier.setdefault(result["carrier"], []).append(message["id"])
+        else:
+            errors.append(result)
+
+    with connect() as conn:
+        for carrier, message_ids in delivered_by_carrier.items():
+            mark_delivered_many(conn, message_ids, carrier)
+            delivered_total.labels(carrier).inc(len(message_ids))
+
+        for result in errors:
+            message = result["message"]
+            updated = mark_delivery_error(conn, message, result["error"])
+            if updated["status"] == "failed":
+                failed_total.labels("haproxy").inc()
+            else:
+                retry_total.labels("haproxy").inc()
+
+    return "sent", available_tps
 
 
 def main():
@@ -82,16 +112,20 @@ def main():
     print(
         f"worker started | operator={config.WORKER_OPERATOR} "
         f"egress_url={config.HAPROXY_EGRESS_URL} worker_id={worker_id} "
-        f"metrics_port={config.WORKER_METRICS_PORT}",
+        f"metrics_port={config.WORKER_METRICS_PORT} "
+        f"concurrency={config.WORKER_CONCURRENCY} "
+        f"batch_size={config.WORKER_BATCH_SIZE}",
         flush=True,
     )
-    while True:
-        result = run_once(worker_id)
-        if result in {"idle", "no_capacity"}:
-            time.sleep(config.WORKER_POLL_SECONDS)
-        else:
-            _status, available_tps = result
-            time.sleep(1 / max(1, available_tps))
+    with ThreadPoolExecutor(max_workers=config.WORKER_CONCURRENCY) as executor:
+        while True:
+            started_at = time.monotonic()
+            status, _available_tps = run_batch(worker_id, executor)
+            if status in {"idle", "no_capacity"}:
+                time.sleep(config.WORKER_POLL_SECONDS)
+            else:
+                elapsed = time.monotonic() - started_at
+                time.sleep(max(0, 1 - elapsed))
 
 
 if __name__ == "__main__":

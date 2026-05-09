@@ -763,7 +763,7 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "(sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m])) - sum(rate(mms_messages_submitted_total[1m])))) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m])) - sum(rate(mms_messages_submitted_total[1m]))) > 0)",
+          "expr": "(sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval])))) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) > 0)",
           "legendFormat": "ETA while draining",
           "range": false,
           "refId": "A"
@@ -857,5 +857,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 8
+  "version": 9
 }

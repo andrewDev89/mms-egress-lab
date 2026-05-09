@@ -107,6 +107,8 @@ active backlog / (recent delivered rate - recent submitted rate)
 
 If submitted traffic is equal to or greater than delivered traffic, the queue is not draining and the ETA is intentionally left empty instead of showing a misleading estimate.
 
+The worker claims up to one second of configured healthy bind capacity per loop and sends those messages concurrently. This keeps high-TPS demos from being capped by one HTTP round trip at a time while still making HAProxy responsible for final SDG bind selection.
+
 ## Traffic Burst Demo
 
 Use this endpoint when you want Grafana to show visible traffic:

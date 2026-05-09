@@ -45,6 +45,8 @@ services:
       WORKER_OPERATOR: tmobile
       WORKER_ID: worker-tmobile-egress
       WORKER_METRICS_PORT: 9102
+      WORKER_CONCURRENCY: 200
+      WORKER_BATCH_SIZE: 1000
       HAPROXY_EGRESS_URL: http://haproxy:8080
       HAPROXY_RUNTIME_HOST: haproxy
       HAPROXY_RUNTIME_PORT: 9999

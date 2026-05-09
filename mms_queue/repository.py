@@ -153,6 +153,34 @@ def claim_next_message(conn, worker_id):
     return row
 
 
+def claim_messages(conn, worker_id, limit):
+    rows = conn.execute(
+        """
+        WITH next_messages AS (
+            SELECT id
+            FROM messages
+            WHERE status IN ('queued', 'retry')
+              AND next_attempt_at <= now()
+            ORDER BY created_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT %s
+        )
+        UPDATE messages
+        SET status = 'sending',
+            carrier = NULL,
+            attempts = attempts + 1,
+            locked_by = %s,
+            locked_at = now(),
+            updated_at = now(),
+            last_error = NULL
+        WHERE id IN (SELECT id FROM next_messages)
+        RETURNING *
+        """,
+        (limit, worker_id),
+    ).fetchall()
+    return rows
+
+
 def mark_delivered(conn, message_id, carrier):
     return conn.execute(
         """
@@ -168,6 +196,26 @@ def mark_delivered(conn, message_id, carrier):
         """,
         (carrier, message_id),
     ).fetchone()
+
+
+def mark_delivered_many(conn, message_ids, carrier):
+    if not message_ids:
+        return []
+
+    return conn.execute(
+        """
+        UPDATE messages
+        SET status = 'delivered',
+            carrier = %s,
+            delivered_at = now(),
+            locked_by = NULL,
+            locked_at = NULL,
+            updated_at = now()
+        WHERE id = ANY(%s)
+        RETURNING *
+        """,
+        (carrier, message_ids),
+    ).fetchall()
 
 
 def mark_delivery_error(conn, message, error):
