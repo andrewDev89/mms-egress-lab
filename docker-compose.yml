@@ -1,4 +1,61 @@
 services:
+  psql-mms:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mms
+      POSTGRES_PASSWORD: mms
+      POSTGRES_DB: psql_mms
+    ports:
+      - "15432:5432"
+    volumes:
+      - psql-mms-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mms -d psql_mms"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mms-api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+      CARRIERS: tmobile-sdg1,tmobile-sdg2
+      HAPROXY_RUNTIME_HOST: haproxy
+      HAPROXY_RUNTIME_PORT: 9999
+      TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
+      TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
+    ports:
+      - "8000:8000"
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      tmobile-sdg1:
+        condition: service_started
+      tmobile-sdg2:
+        condition: service_started
+      haproxy:
+        condition: service_started
+
+  worker-tmobile-egress:
+    build: .
+    command: ["python", "-m", "mms_queue.worker"]
+    environment:
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+      CARRIERS: tmobile-sdg1,tmobile-sdg2
+      WORKER_OPERATOR: tmobile
+      WORKER_ID: worker-tmobile-egress
+      WORKER_METRICS_PORT: 9102
+      HAPROXY_EGRESS_URL: http://haproxy:8080
+      HAPROXY_RUNTIME_HOST: haproxy
+      HAPROXY_RUNTIME_PORT: 9999
+      TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
+      TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      haproxy:
+        condition: service_started
+
   haproxy:
     image: haproxy:latest
     ports:
@@ -9,14 +66,20 @@ services:
       - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
       - ./capacity.map:/usr/local/etc/haproxy/capacity.map:ro
     depends_on:
-      - carrier1
-      - carrier2
+      - tmobile-sdg1
+      - tmobile-sdg2
 
-  carrier1:
-    image: nginx:latest
+  tmobile-sdg1:
+    build: .
+    command: ["uvicorn", "mms_queue.carrier_mock:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      CARRIER_NAME: tmobile-sdg1
 
-  carrier2:
-    image: nginx:latest
+  tmobile-sdg2:
+    build: .
+    command: ["uvicorn", "mms_queue.carrier_mock:app", "--host", "0.0.0.0", "--port", "8080"]
+    environment:
+      CARRIER_NAME: tmobile-sdg2
 
   haproxy-exporter:
     image: quay.io/prometheus/haproxy-exporter:latest
@@ -33,6 +96,7 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus-alerts.yml:/etc/prometheus/prometheus-alerts.yml:ro
       - prometheus-data:/prometheus
     depends_on:
       - haproxy-exporter
@@ -42,10 +106,13 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     depends_on:
       - prometheus
 
 volumes:
+  psql-mms-data:
   prometheus-data:
   grafana-data:
