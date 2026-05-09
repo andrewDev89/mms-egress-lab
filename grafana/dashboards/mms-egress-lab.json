@@ -297,6 +297,10 @@
               {
                 "color": "green",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.001
               }
             ]
           },
@@ -337,13 +341,13 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "-1 * sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))",
-          "legendFormat": "Queue drain toward binds",
+          "expr": "sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))",
+          "legendFormat": "Net queue rate",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Queue Drain Rate Toward Binds",
+      "title": "Queue Net Rate",
       "type": "bargauge"
     },
     {
@@ -614,5 +618,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 4
+  "version": 5
 }
