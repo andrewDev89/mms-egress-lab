@@ -10,6 +10,8 @@ MMSC API -> PostgreSQL queue -> T-Mobile egress worker -> HAProxy -> tmobile-sdg
 
 The queue stores operator-level T-Mobile work. HAProxy owns the final SDG bind decision and failover.
 
+The API periodically syncs the configured healthy bind TPS from PostgreSQL into HAProxy's runtime capacity map. This keeps HAProxy aligned after container restarts, even when PostgreSQL remembers a higher demo capacity than the static `capacity.map` file.
+
 ## Run
 
 ```bash
