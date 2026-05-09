@@ -358,6 +358,23 @@
             "mode": "thresholds"
           },
           "decimals": 0,
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "yellow",
+                  "index": 0,
+                  "text": "Growing - ETA after ingress slows"
+                },
+                "0": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Clear"
+                }
+              },
+              "type": "value"
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -679,6 +696,23 @@
             "mode": "thresholds"
           },
           "decimals": 0,
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "yellow",
+                  "index": 0,
+                  "text": "Growing - ETA after ingress slows"
+                },
+                "0": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Clear"
+                }
+              },
+              "type": "value"
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -732,13 +766,13 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "(sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval])))) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) > 0)",
-          "legendFormat": "ETA while draining",
+          "expr": "(vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0)) or (vector(-1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) <= 0)) or ((sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval])))) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) > 0))",
+          "legendFormat": "Net ETA status",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Drain ETA While Shrinking",
+      "title": "Net Drain ETA Status",
       "type": "stat"
     },
     {
@@ -805,6 +839,96 @@
       ],
       "title": "Active Queue Age Buckets",
       "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dflck6ecqc5c0d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "options": {
+                "-1": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "No egress"
+                },
+                "0": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "Clear"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 16,
+        "x": 8,
+        "y": 20
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dflck6ecqc5c0d"
+          },
+          "editorMode": "code",
+          "expr": "(vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0)) or (vector(-1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) <= 0)) or ((sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) > 0))",
+          "legendFormat": "If ingress stopped now",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Clear Time If Ingress Stops Now",
+      "type": "stat"
     }
   ],
   "preload": false,
@@ -826,5 +950,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 10
+  "version": 11
 }
