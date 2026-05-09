@@ -228,6 +228,33 @@ def queue_oldest_ages(conn):
     return rows
 
 
+def queue_age_buckets(conn):
+    rows = conn.execute(
+        """
+        WITH active_messages AS (
+            SELECT
+                COALESCE(carrier, 'unassigned') AS carrier,
+                EXTRACT(EPOCH FROM now() - created_at) AS age_seconds
+            FROM messages
+            WHERE status IN ('queued', 'sending', 'retry')
+        )
+        SELECT
+            carrier,
+            CASE
+                WHEN age_seconds < 30 THEN '<30s'
+                WHEN age_seconds < 60 THEN '30-60s'
+                WHEN age_seconds < 300 THEN '1-5m'
+                ELSE '>5m'
+            END AS bucket,
+            count(*) AS depth
+        FROM active_messages
+        GROUP BY carrier, bucket
+        ORDER BY carrier, bucket
+        """
+    ).fetchall()
+    return rows
+
+
 def clear_messages(conn):
     row = conn.execute("DELETE FROM messages RETURNING id").fetchall()
     return len(row)

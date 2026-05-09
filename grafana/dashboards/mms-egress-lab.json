@@ -698,6 +698,144 @@
       ],
       "title": "Terminal Outcomes Since Last Clear",
       "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dflck6ecqc5c0d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 15
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dflck6ecqc5c0d"
+          },
+          "editorMode": "code",
+          "expr": "(sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m])) - sum(rate(mms_messages_submitted_total[1m])))) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m])) - sum(rate(mms_messages_submitted_total[1m]))) > 0)",
+          "legendFormat": "ETA while draining",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Drain ETA While Shrinking",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "dflck6ecqc5c0d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 15
+      },
+      "id": 10,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dflck6ecqc5c0d"
+          },
+          "editorMode": "code",
+          "expr": "sum by (bucket) (mms_queue_age_bucket{carrier=\"unassigned\"})",
+          "legendFormat": "{{bucket}}",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Active Queue Age Buckets",
+      "type": "bargauge"
     }
   ],
   "preload": false,
@@ -719,5 +857,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 7
+  "version": 8
 }

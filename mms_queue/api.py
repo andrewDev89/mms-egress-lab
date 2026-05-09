@@ -14,6 +14,7 @@ from .metrics import (
     carrier_capacity,
     carrier_health,
     messages_submitted,
+    queue_age_bucket,
     queue_depth,
     queue_oldest_age,
     render_metrics,
@@ -25,6 +26,7 @@ from .repository import (
     get_message,
     list_carriers,
     list_messages,
+    queue_age_buckets,
     queue_depths,
     queue_oldest_ages,
     set_carrier_capacity,
@@ -231,6 +233,8 @@ def clear_demo_messages():
         for message_status in ("queued", "sending", "retry", "delivered", "failed"):
             queue_depth.labels(carrier, message_status).set(0)
             queue_oldest_age.labels(carrier, message_status).set(0)
+        for bucket in ("<30s", "30-60s", "1-5m", ">5m"):
+            queue_age_bucket.labels(carrier, bucket).set(0)
 
     return {
         "operator": "tmobile",
@@ -654,6 +658,17 @@ def metrics():
             for message_status in ("queued", "sending", "retry"):
                 if (carrier, message_status) not in seen_age:
                     queue_oldest_age.labels(carrier, message_status).set(0)
+
+        seen_buckets = set()
+        for row in queue_age_buckets(conn):
+            labels = (row["carrier"], row["bucket"])
+            seen_buckets.add(labels)
+            queue_age_bucket.labels(*labels).set(row["depth"])
+
+        for carrier in [*config.CARRIERS, "unassigned"]:
+            for bucket in ("<30s", "30-60s", "1-5m", ">5m"):
+                if (carrier, bucket) not in seen_buckets:
+                    queue_age_bucket.labels(carrier, bucket).set(0)
 
     body, content_type = render_metrics()
     return Response(content=body, media_type=content_type)

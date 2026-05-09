@@ -99,6 +99,14 @@ Prometheus loads demo alert rules for the oldest active queue entry:
 
 Open `http://localhost:9090/alerts` to see alert state during a backlog demo. Grafana also includes an `Oldest Queue Age` panel with matching green/yellow/red thresholds.
 
+The dashboard also includes queue-age buckets and a drain ETA. The ETA is only shown when the current backlog is shrinking:
+
+```text
+active backlog / (recent delivered rate - recent submitted rate)
+```
+
+If submitted traffic is equal to or greater than delivered traffic, the queue is not draining and the ETA is intentionally left empty instead of showing a misleading estimate.
+
 ## Traffic Burst Demo
 
 Use this endpoint when you want Grafana to show visible traffic:

@@ -35,6 +35,11 @@ queue_oldest_age = Gauge(
     "Age in seconds of the oldest active PostgreSQL queue entry by carrier and status.",
     ["carrier", "status"],
 )
+queue_age_bucket = Gauge(
+    "mms_queue_age_bucket",
+    "Active PostgreSQL queue entries grouped by queue age bucket.",
+    ["carrier", "bucket"],
+)
 carrier_health = Gauge(
     "mms_carrier_healthy",
     "Carrier health state, 1 for healthy and 0 for unhealthy.",
