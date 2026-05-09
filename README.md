@@ -99,13 +99,15 @@ Prometheus loads demo alert rules for the oldest active queue entry:
 
 Open `http://localhost:9090/alerts` to see alert state during a backlog demo. Grafana also includes an `Oldest Queue Age` panel with matching green/yellow/red thresholds.
 
-The dashboard also includes queue-age buckets and a drain ETA. The ETA is only shown when the current backlog is shrinking:
+The dashboard also includes queue-age buckets and two ETA views. `Net Drain ETA Status` only shows a countdown when the current backlog is shrinking:
 
 ```text
 active backlog / (recent delivered rate - recent submitted rate)
 ```
 
-If submitted traffic is equal to or greater than delivered traffic, the queue is not draining and the ETA is intentionally left empty instead of showing a misleading estimate.
+If submitted traffic is equal to or greater than delivered traffic, the queue is not draining and the panel reports that the queue is still growing. `Clear Time If Ingress Stops Now` answers the common operations question: "If new traffic stopped right now, how long would the current backlog take to clear at the observed delivery rate?"
+
+The worker claims up to one second of configured healthy bind capacity per loop and sends those messages concurrently. This keeps high-TPS demos from being capped by one HTTP round trip at a time while still making HAProxy responsible for final SDG bind selection.
 
 ## Traffic Burst Demo
 
@@ -132,3 +134,28 @@ curl -X POST http://localhost:8000/demo/messages/clear
 ```
 
 Use this before a clean one-message demo. Delivered rows remain visible until the queue is cleared, so a previous message through each SDG bind will show one terminal delivery on each bind even if the most recent test only sent one message.
+
+## Sustained Message Blast Demo
+
+Use this endpoint for a more traditional customer traffic blast. By default it injects 150,000 messages into the MMSC API path at 900 messages/second, which intentionally exceeds a `300 + 300 TPS` egress configuration and should create sustained backlog pressure.
+
+```bash
+curl -X POST http://localhost:8000/demo/messages/blast \
+  -H "Content-Type: application/json" \
+  -d '{
+    "count": 150000,
+    "rate_per_second": 900,
+    "sender": "12065550100",
+    "recipient_prefix": "120655",
+    "text": "Customer traffic blast",
+    "max_attempts": 100
+  }'
+```
+
+The response includes a `job_id`. Check injection progress with:
+
+```bash
+curl http://localhost:8000/demo/messages/blast/<job_id>
+```
+
+Only one blast can run at a time. The default blast takes about 167 seconds to finish injecting; the queue can continue draining afterward.
