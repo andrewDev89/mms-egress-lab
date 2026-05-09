@@ -470,19 +470,22 @@
       },
       "id": 5,
       "options": {
-        "legend": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "fields": "",
+          "values": false
         },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
       },
       "pluginVersion": "11.6.0",
       "targets": [
@@ -492,9 +495,9 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier) (increase(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__range]))",
+          "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"delivered\"})",
           "legendFormat": "{{carrier}} delivered",
-          "range": true,
+          "range": false,
           "refId": "A"
         },
         {
@@ -503,9 +506,9 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier) (increase(mms_retry_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__range]))",
+          "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"retry\"})",
           "legendFormat": "{{carrier}} retries",
-          "range": true,
+          "range": false,
           "refId": "B"
         },
         {
@@ -514,14 +517,14 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier) (increase(mms_failed_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__range]))",
+          "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"failed\"})",
           "legendFormat": "{{carrier}} failed",
-          "range": true,
+          "range": false,
           "refId": "C"
         }
       ],
-      "title": "Delivery Outcomes In Selected Range",
-      "type": "timeseries"
+      "title": "Current Delivery Outcomes",
+      "type": "bargauge"
     }
   ],
   "preload": false,
