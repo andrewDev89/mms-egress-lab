@@ -281,6 +281,72 @@
     {
       "datasource": {
         "type": "prometheus",
+        "uid": "dflck6ecqc5c0d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 8,
+        "x": 0,
+        "y": 10
+      },
+      "id": 7,
+      "options": {
+        "displayMode": "gradient",
+        "maxVizHeight": 300,
+        "minVizHeight": 16,
+        "minVizWidth": 8,
+        "namePlacement": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true,
+        "sizing": "auto",
+        "valueMode": "color"
+      },
+      "pluginVersion": "11.6.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "dflck6ecqc5c0d"
+          },
+          "editorMode": "code",
+          "expr": "-1 * sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))",
+          "legendFormat": "Queue drain toward binds",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Queue Drain Rate Toward Binds",
+      "type": "bargauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
           "uid": "dflck6ecqc5c0d"
       },
       "fieldConfig": {
@@ -305,7 +371,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 10
+        "y": 14
       },
       "id": 4,
       "options": {
@@ -369,7 +435,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 15
+        "y": 19
       },
       "id": 6,
       "options": {
@@ -546,5 +612,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 2
+  "version": 3
 }
