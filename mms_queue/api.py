@@ -44,6 +44,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
+haproxy_sync_started = False
+
 
 class MessageCreate(BaseModel):
     sender: str = Field(..., examples=["12065550100"])
@@ -173,9 +175,34 @@ def sync_haproxy_capacity(total_tps):
     }
 
 
+def sync_haproxy_capacity_from_db():
+    with connect() as conn:
+        total_tps = total_available_tps(conn)
+    return sync_haproxy_capacity(total_tps)
+
+
+def haproxy_capacity_sync_loop():
+    while True:
+        try:
+            sync_state = sync_haproxy_capacity_from_db()
+            print(
+                "haproxy capacity synced | "
+                f"allowed_tps={sync_state['allowed_tps']} "
+                f"threshold={sync_state['haproxy_threshold']}",
+                flush=True,
+            )
+        except Exception as exc:
+            print(f"haproxy capacity sync skipped | error={exc}", flush=True)
+        time.sleep(config.HAPROXY_SYNC_SECONDS)
+
+
 @app.on_event("startup")
 def startup():
+    global haproxy_sync_started
     init_db()
+    if not haproxy_sync_started:
+        threading.Thread(target=haproxy_capacity_sync_loop, daemon=True).start()
+        haproxy_sync_started = True
 
 
 @app.post("/messages")

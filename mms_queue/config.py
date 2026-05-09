@@ -31,6 +31,7 @@ HAPROXY_EGRESS_URL = os.getenv("HAPROXY_EGRESS_URL", "http://haproxy:8080")
 HAPROXY_RUNTIME_HOST = os.getenv("HAPROXY_RUNTIME_HOST", "haproxy")
 HAPROXY_RUNTIME_PORT = int(os.getenv("HAPROXY_RUNTIME_PORT", "9999"))
 HAPROXY_RATE_WINDOW_SECONDS = int(os.getenv("HAPROXY_RATE_WINDOW_SECONDS", "5"))
+HAPROXY_SYNC_SECONDS = float(os.getenv("HAPROXY_SYNC_SECONDS", "10"))
 HAPROXY_CAPACITY_MAP = os.getenv(
     "HAPROXY_CAPACITY_MAP",
     "/usr/local/etc/haproxy/capacity.map",
