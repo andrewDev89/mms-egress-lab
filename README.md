@@ -101,13 +101,13 @@ Prometheus loads demo alert rules for the oldest active queue entry:
 
 Open `http://localhost:9090/alerts` to see alert state during a backlog demo. Grafana also includes an `Oldest Queue Age` panel with matching green/yellow/red thresholds.
 
-The dashboard also includes queue-age buckets and two ETA views. `Net Drain ETA Status` only shows a countdown when the current backlog is shrinking:
+The dashboard also includes queue-age buckets and two ETA views. `Capacity-Based Net Drain ETA` only shows a countdown when the current backlog should shrink at the current healthy bind capacity:
 
 ```text
-active backlog / (recent delivered rate - recent submitted rate)
+active backlog / (healthy configured bind TPS - recent submitted rate)
 ```
 
-If submitted traffic is equal to or greater than delivered traffic, the queue is not draining and the panel reports that the queue is still growing. `Clear Time If Ingress Stops Now` answers the common operations question: "If new traffic stopped right now, how long would the current backlog take to clear at the observed delivery rate?"
+If submitted traffic is equal to or greater than healthy configured bind TPS, the queue is not draining and the panel reports that the queue is still growing. `Clear Time At Available TPS` answers the common operations question: "If new traffic stopped right now, how long would the current backlog take to clear at the currently available healthy bind capacity?" A down bind is excluded automatically because the estimate multiplies each bind's configured TPS by its health state.
 
 The worker claims up to one second of configured healthy bind capacity per loop and sends those messages concurrently. This keeps high-TPS demos from being capped by one HTTP round trip at a time while still making HAProxy responsible for final SDG bind selection.
 
