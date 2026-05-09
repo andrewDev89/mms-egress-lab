@@ -113,3 +113,5 @@ Clear all demo messages and reset queue depth:
 ```bash
 curl -X POST http://localhost:8000/demo/messages/clear
 ```
+
+Use this before a clean one-message demo. Delivered rows remain visible until the queue is cleared, so a previous message through each SDG bind will show one terminal delivery on each bind even if the most recent test only sent one message.

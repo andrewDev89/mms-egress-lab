@@ -269,13 +269,13 @@
             "uid": "dflck6ecqc5c0d"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier, status) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2|unassigned\"})",
+          "expr": "sum by (carrier, status) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2|unassigned\",status=~\"queued|sending|retry\"})",
           "legendFormat": "{{carrier}} {{status}}",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "PostgreSQL Queue Depth",
+      "title": "PostgreSQL Active Queue",
       "type": "bargauge"
     },
     {
@@ -403,7 +403,7 @@
           "refId": "A"
         }
       ],
-      "title": "Messages Submitted In Selected Range",
+      "title": "Messages Submitted Since API Restart",
       "type": "stat"
     },
     {
@@ -523,7 +523,7 @@
           "refId": "C"
         }
       ],
-      "title": "Current Delivery Outcomes",
+      "title": "Terminal Outcomes Since Last Clear",
       "type": "bargauge"
     }
   ],
