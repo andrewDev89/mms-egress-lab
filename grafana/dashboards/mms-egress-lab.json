@@ -289,6 +289,8 @@
             "mode": "thresholds"
           },
           "decimals": 2,
+          "max": -40,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -612,5 +614,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 3
+  "version": 4
 }
