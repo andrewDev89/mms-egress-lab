@@ -1,10 +1,13 @@
 import json
 import socket
+import threading
+import time
+import uuid
 import urllib.error
 import urllib.request
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, Response, status
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 from starlette.responses import HTMLResponse
 
@@ -21,6 +24,7 @@ from .metrics import (
 )
 from .repository import (
     create_message,
+    create_messages_bulk,
     clear_messages,
     get_carrier_state,
     get_message,
@@ -60,6 +64,31 @@ class BurstCreate(BaseModel):
     recipient_prefix: str = Field("1206555", examples=["1206555"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str = Field("Demo MMS payload", examples=["Demo MMS payload"])
+    max_attempts: int = Field(
+        config.DEFAULT_MAX_ATTEMPTS,
+        ge=1,
+        le=config.MAX_ATTEMPTS_LIMIT,
+        examples=[100],
+    )
+
+
+class BlastCreate(BaseModel):
+    count: int = Field(
+        config.BLAST_MESSAGE_COUNT,
+        ge=1,
+        le=config.BLAST_MAX_MESSAGES,
+        examples=[150000],
+    )
+    rate_per_second: int = Field(
+        config.BLAST_RATE_PER_SECOND,
+        ge=1,
+        le=config.BLAST_MAX_RATE_PER_SECOND,
+        examples=[900],
+    )
+    sender: str = Field("12065550100", examples=["12065550100"])
+    recipient_prefix: str = Field("120655", examples=["120655"])
+    media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
+    text: str = Field("Traditional MMS blast demo", examples=["Traditional MMS blast demo"])
     max_attempts: int = Field(
         config.DEFAULT_MAX_ATTEMPTS,
         ge=1,
@@ -222,6 +251,160 @@ def enqueue_message_burst(payload: BurstCreate, response: Response):
         "first_message_id": message_ids[0],
         "last_message_id": message_ids[-1],
     }
+
+
+blast_jobs = {}
+blast_jobs_lock = threading.Lock()
+
+
+def update_blast_job(job_id, **updates):
+    with blast_jobs_lock:
+        blast_jobs[job_id].update(updates)
+
+
+def run_message_blast(job_id, payload):
+    started_at = time.monotonic()
+    sent = 0
+    accepted_for_delivery = 0
+    queued_due_to_backpressure = 0
+    first_message_id = None
+    last_message_id = None
+
+    try:
+        with connect() as conn:
+            immediate_capacity = total_available_tps(conn) > 0
+            result_label = (
+                "accepted_for_delivery"
+                if immediate_capacity
+                else "queued_due_to_carrier_backpressure"
+            )
+
+            while sent < payload.count:
+                chunk_started_at = time.monotonic()
+                chunk_size = min(
+                    config.BLAST_CHUNK_SIZE,
+                    payload.rate_per_second,
+                    payload.count - sent,
+                )
+                message_payloads = []
+                for offset in range(chunk_size):
+                    index = sent + offset
+                    message_payloads.append(
+                        {
+                            "sender": payload.sender,
+                            "recipient": f"{payload.recipient_prefix}{index:06d}",
+                            "media_url": payload.media_url,
+                            "text": f"{payload.text} #{index + 1}",
+                            "max_attempts": payload.max_attempts,
+                        }
+                    )
+
+                rows = create_messages_bulk(conn, message_payloads)
+                conn.commit()
+
+                ids = [row["id"] for row in rows]
+                if ids:
+                    first_message_id = first_message_id or ids[0]
+                    last_message_id = ids[-1]
+
+                sent += len(rows)
+                messages_submitted.labels(result_label).inc(len(rows))
+                if immediate_capacity:
+                    accepted_for_delivery += len(rows)
+                else:
+                    queued_due_to_backpressure += len(rows)
+
+                elapsed = time.monotonic() - started_at
+                target_elapsed = sent / payload.rate_per_second
+                update_blast_job(
+                    job_id,
+                    status="running",
+                    enqueued=sent,
+                    accepted_for_delivery=accepted_for_delivery,
+                    queued_due_to_carrier_backpressure=queued_due_to_backpressure,
+                    first_message_id=first_message_id,
+                    last_message_id=last_message_id,
+                    elapsed_seconds=round(elapsed, 3),
+                    effective_rate_per_second=round(sent / max(0.001, elapsed), 2),
+                    last_chunk_insert_rate=round(
+                        len(rows) / max(0.001, time.monotonic() - chunk_started_at),
+                        2,
+                    ),
+                )
+                time.sleep(max(0, target_elapsed - elapsed))
+
+        update_blast_job(
+            job_id,
+            status="completed",
+            completed_at=time.time(),
+            elapsed_seconds=round(time.monotonic() - started_at, 3),
+            effective_rate_per_second=round(
+                sent / max(0.001, time.monotonic() - started_at),
+                2,
+            ),
+        )
+    except Exception as exc:
+        update_blast_job(
+            job_id,
+            status="failed",
+            error=str(exc),
+            elapsed_seconds=round(time.monotonic() - started_at, 3),
+        )
+
+
+@app.post("/demo/messages/blast", status_code=status.HTTP_202_ACCEPTED)
+def start_message_blast(payload: BlastCreate, background_tasks: BackgroundTasks):
+    job_id = str(uuid.uuid4())
+    now = time.time()
+    with blast_jobs_lock:
+        active_job = next(
+            (
+                job
+                for job in blast_jobs.values()
+                if job["status"] in {"scheduled", "running"}
+            ),
+            None,
+        )
+        if active_job:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "a blast job is already running",
+                    "job_id": active_job["job_id"],
+                    "status": active_job["status"],
+                    "enqueued": active_job["enqueued"],
+                    "requested": active_job["requested"],
+                },
+            )
+
+        blast_jobs[job_id] = {
+            "job_id": job_id,
+            "status": "scheduled",
+            "operator": "tmobile",
+            "requested": payload.count,
+            "target_rate_per_second": payload.rate_per_second,
+            "enqueued": 0,
+            "accepted_for_delivery": 0,
+            "queued_due_to_carrier_backpressure": 0,
+            "first_message_id": None,
+            "last_message_id": None,
+            "submitted_at": now,
+            "estimated_injection_seconds": round(payload.count / payload.rate_per_second, 3),
+            "effective_rate_per_second": 0,
+            "last_chunk_insert_rate": 0,
+        }
+
+    background_tasks.add_task(run_message_blast, job_id, payload)
+    return blast_jobs[job_id]
+
+
+@app.get("/demo/messages/blast/{job_id}")
+def get_message_blast(job_id: str):
+    with blast_jobs_lock:
+        job = blast_jobs.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="blast job not found")
+        return dict(job)
 
 
 @app.post("/demo/messages/clear")

@@ -64,6 +64,35 @@ def create_message(conn, payload):
     return row, is_any_bind_available(conn)
 
 
+def create_messages_bulk(conn, payloads):
+    if not payloads:
+        return []
+
+    values_sql = ",".join(["(%s, %s, %s, %s, 'queued', %s, now())"] * len(payloads))
+    params = []
+    for payload in payloads:
+        params.extend(
+            [
+                payload["sender"],
+                payload["recipient"],
+                payload.get("media_url"),
+                payload.get("text"),
+                payload.get("max_attempts", config.DEFAULT_MAX_ATTEMPTS),
+            ]
+        )
+
+    return conn.execute(
+        f"""
+        INSERT INTO messages (
+            sender, recipient, media_url, text, status, max_attempts, accepted_at
+        )
+        VALUES {values_sql}
+        RETURNING id
+        """,
+        params,
+    ).fetchall()
+
+
 def get_carrier_state(conn, carrier):
     return conn.execute(
         "SELECT carrier, healthy, tps_capacity, updated_at FROM carrier_state WHERE carrier = %s",
