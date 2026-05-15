@@ -24,7 +24,7 @@
     {
       "datasource": {
         "type": "prometheus",
-          "uid": "dflck6ecqc5c0d"
+          "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -94,7 +94,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}",
@@ -109,7 +109,7 @@
     {
       "datasource": {
         "type": "prometheus",
-          "uid": "dflck6ecqc5c0d"
+          "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -190,7 +190,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(mms_delivery_attempts_total{carrier=\"haproxy\"}[$__rate_interval]))",
@@ -201,7 +201,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (carrier) (rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))",
@@ -216,7 +216,7 @@
     {
       "datasource": {
         "type": "prometheus",
-          "uid": "dflck6ecqc5c0d"
+          "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -266,7 +266,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(max_over_time(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}[1m]))",
@@ -281,7 +281,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dflck6ecqc5c0d"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -335,7 +335,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(rate(mms_messages_submitted_total[$__rate_interval])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))",
@@ -350,7 +350,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dflck6ecqc5c0d"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -425,7 +425,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "max(mms_queue_oldest_age_seconds{carrier=\"unassigned\",status=~\"queued|sending|retry\"})",
@@ -440,7 +440,7 @@
     {
       "datasource": {
         "type": "prometheus",
-          "uid": "dflck6ecqc5c0d"
+          "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -489,7 +489,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})",
@@ -504,7 +504,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dflck6ecqc5c0d"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -553,7 +553,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (result) (mms_messages_submitted_total)",
@@ -568,7 +568,7 @@
     {
       "datasource": {
         "type": "prometheus",
-          "uid": "dflck6ecqc5c0d"
+          "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -651,7 +651,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"delivered\"})",
@@ -662,7 +662,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"retry\"})",
@@ -673,7 +673,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"failed\"})",
@@ -688,7 +688,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dflck6ecqc5c0d"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -763,22 +763,22 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0)) or (vector(-1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) <= 0)) or ((sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval])))) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) > 0))",
+          "expr": "(vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0)) or (vector(-1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"} * on(carrier) mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) <= 0)) or ((sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / (sum(mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"} * on(carrier) mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) - sum(rate(mms_messages_submitted_total[$__rate_interval])))) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"} * on(carrier) mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) - sum(rate(mms_messages_submitted_total[$__rate_interval]))) > 0))",
           "legendFormat": "Net ETA status",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Net Drain ETA Status",
+      "title": "Capacity-Based Net Drain ETA",
       "type": "stat"
     },
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dflck6ecqc5c0d"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -828,7 +828,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (bucket) (mms_queue_age_bucket{carrier=\"unassigned\"})",
@@ -843,7 +843,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dflck6ecqc5c0d"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -918,16 +918,16 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dflck6ecqc5c0d"
+            "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0)) or (vector(-1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) <= 0)) or ((sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and (sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval])) > 0))",
+          "expr": "(vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0)) or (vector(-1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and (sum(mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"} * on(carrier) mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) <= 0)) or ((sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) / sum(mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"} * on(carrier) mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and (sum(mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"} * on(carrier) mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) > 0))",
           "legendFormat": "If ingress stopped now",
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Clear Time If Ingress Stops Now",
+      "title": "Clear Time At Available TPS",
       "type": "stat"
     }
   ],
@@ -950,5 +950,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 11
+  "version": 12
 }

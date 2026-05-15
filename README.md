@@ -15,7 +15,7 @@ The API periodically syncs the configured healthy bind TPS from PostgreSQL into 
 ## Run
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 Useful local URLs:
@@ -26,6 +26,34 @@ Useful local URLs:
 - Grafana: http://localhost:3000
 - HAProxy stats: http://localhost:8404
 - PostgreSQL: `localhost:15432`, database `psql_mms`, user/password `mms`/`mms`
+
+Grafana is provisioned automatically when the stack starts. The Prometheus datasource is named `Prometheus`, uses the stable datasource UID `prometheus`, and points at `http://prometheus:9090` inside the Docker Compose network. The MMS Egress Lab dashboard is loaded from `grafana/dashboards`.
+
+Grafana's default login is `admin` / `admin` on a fresh volume.
+
+If you change Python dependencies or Docker build inputs, rebuild with:
+
+```bash
+docker compose up -d --build
+```
+
+## Grafana Validation
+
+After startup, open `http://localhost:3000` and log in with `admin` / `admin` if prompted.
+
+Verify Prometheus is reachable from Grafana by opening the `Prometheus` datasource in Grafana and using **Save & test**. It should point to `http://prometheus:9090`.
+
+Verify the dashboard uses the portable datasource UID:
+
+```bash
+grep -R '"uid": "prometheus"' grafana/dashboards
+```
+
+There should be no references to the old machine-local datasource UID:
+
+```bash
+grep -R "dflck6ecqc5c0""d" .
+```
 
 ## Backpressure Demo
 
@@ -101,13 +129,13 @@ Prometheus loads demo alert rules for the oldest active queue entry:
 
 Open `http://localhost:9090/alerts` to see alert state during a backlog demo. Grafana also includes an `Oldest Queue Age` panel with matching green/yellow/red thresholds.
 
-The dashboard also includes queue-age buckets and two ETA views. `Net Drain ETA Status` only shows a countdown when the current backlog is shrinking:
+The dashboard also includes queue-age buckets and two ETA views. `Capacity-Based Net Drain ETA` only shows a countdown when the current backlog should shrink at the current healthy bind capacity:
 
 ```text
-active backlog / (recent delivered rate - recent submitted rate)
+active backlog / (healthy configured bind TPS - recent submitted rate)
 ```
 
-If submitted traffic is equal to or greater than delivered traffic, the queue is not draining and the panel reports that the queue is still growing. `Clear Time If Ingress Stops Now` answers the common operations question: "If new traffic stopped right now, how long would the current backlog take to clear at the observed delivery rate?"
+If submitted traffic is equal to or greater than healthy configured bind TPS, the queue is not draining and the panel reports that the queue is still growing. `Clear Time At Available TPS` answers the common operations question: "If new traffic stopped right now, how long would the current backlog take to clear at the currently available healthy bind capacity?" A down bind is excluded automatically because the estimate multiplies each bind's configured TPS by its health state.
 
 The worker claims up to one second of configured healthy bind capacity per loop and sends those messages concurrently. This keeps high-TPS demos from being capped by one HTTP round trip at a time while still making HAProxy responsible for final SDG bind selection.
 
