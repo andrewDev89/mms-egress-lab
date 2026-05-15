@@ -15,7 +15,7 @@ The API periodically syncs the configured healthy bind TPS from PostgreSQL into 
 ## Run
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
 Useful local URLs:
@@ -26,6 +26,34 @@ Useful local URLs:
 - Grafana: http://localhost:3000
 - HAProxy stats: http://localhost:8404
 - PostgreSQL: `localhost:15432`, database `psql_mms`, user/password `mms`/`mms`
+
+Grafana is provisioned automatically when the stack starts. The Prometheus datasource is named `Prometheus`, uses the stable datasource UID `prometheus`, and points at `http://prometheus:9090` inside the Docker Compose network. The MMS Egress Lab dashboard is loaded from `grafana/dashboards`.
+
+Grafana's default login is `admin` / `admin` on a fresh volume.
+
+If you change Python dependencies or Docker build inputs, rebuild with:
+
+```bash
+docker compose up -d --build
+```
+
+## Grafana Validation
+
+After startup, open `http://localhost:3000` and log in with `admin` / `admin` if prompted.
+
+Verify Prometheus is reachable from Grafana by opening the `Prometheus` datasource in Grafana and using **Save & test**. It should point to `http://prometheus:9090`.
+
+Verify the dashboard uses the portable datasource UID:
+
+```bash
+grep -R '"uid": "prometheus"' grafana/dashboards
+```
+
+There should be no references to the old machine-local datasource UID:
+
+```bash
+grep -R "dflck6ecqc5c0""d" .
+```
 
 ## Backpressure Demo
 
