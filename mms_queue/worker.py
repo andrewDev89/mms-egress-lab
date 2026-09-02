@@ -8,6 +8,7 @@ from prometheus_client import start_http_server
 
 from . import config
 from .db import connect, init_db
+from .event_log import log_event
 from .metrics import (
     delivered_total,
     delivery_attempts,
@@ -59,6 +60,8 @@ def process_message(message):
             "status": "error",
             "message": message,
             "error": str(exc),
+            "http_status": exc.code,
+            "error_type": "http_rejection",
         }
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         transport_errors.inc()
@@ -66,6 +69,7 @@ def process_message(message):
             "status": "error",
             "message": message,
             "error": str(exc),
+            "error_type": type(exc).__name__,
         }
 
     accepted_bind = carrier_response.get("carrier", "unknown")
@@ -95,10 +99,18 @@ def run_batch(worker_id, executor):
         else:
             errors.append(result)
 
+    events = []
     with connect() as conn:
         for carrier, message_ids in delivered_by_carrier.items():
-            mark_delivered_many(conn, message_ids, carrier)
-            delivered_total.labels(carrier).inc(len(message_ids))
+            delivered = mark_delivered_many(conn, message_ids, carrier)
+            delivered_total.labels(carrier).inc(len(delivered))
+            for row in delivered:
+                events.append({
+                    "event": "delivered",
+                    "message_id": row["id"],
+                    "attempt": row["attempts"],
+                    "carrier": carrier,
+                })
 
         for result in errors:
             message = result["message"]
@@ -109,6 +121,19 @@ def run_batch(worker_id, executor):
                 failed_total.labels("haproxy").inc()
             else:
                 retry_total.labels("haproxy").inc()
+            events.append({
+                "event": "delivery_failed" if updated["status"] == "failed" else "retry_scheduled",
+                "level": "error" if updated["status"] == "failed" else "warning",
+                "message_id": message["id"],
+                "attempt": message.get("attempts"),
+                "http_status": result.get("http_status"),
+                "error_type": result.get("error_type", "delivery_error"),
+                "next_attempt_at": updated.get("next_attempt_at") if updated["status"] == "retry" else None,
+            })
+
+    # Emit outcomes only after the transaction commits.
+    for event in events:
+        log_event("sender", worker_id=worker_id, **event)
 
     return "sent", len(messages)
 
@@ -118,14 +143,12 @@ def main():
     worker_id = config.WORKER_ID
     worker_send_tps.set(config.WORKER_SEND_TPS)
     start_http_server(config.WORKER_METRICS_PORT)
-    print(
-        f"worker started | operator={config.WORKER_OPERATOR} "
-        f"egress_url={config.HAPROXY_EGRESS_URL} worker_id={worker_id} "
-        f"metrics_port={config.WORKER_METRICS_PORT} "
-        f"concurrency={config.WORKER_CONCURRENCY} "
-        f"send_tps={config.WORKER_SEND_TPS} "
-        f"batch_size={config.WORKER_BATCH_SIZE}",
-        flush=True,
+    log_event(
+        "sender", "sender_started", worker_id=worker_id,
+        operator=config.WORKER_OPERATOR,
+        send_tps=config.WORKER_SEND_TPS,
+        concurrency=config.WORKER_CONCURRENCY,
+        batch_size=config.WORKER_BATCH_SIZE,
     )
     with ThreadPoolExecutor(max_workers=config.WORKER_CONCURRENCY) as executor:
         while True:

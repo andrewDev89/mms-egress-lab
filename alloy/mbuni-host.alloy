@@ -1,0 +1,26 @@
+// Run on each Mbuni Linux host. This collector needs no Docker socket.
+local.file_match "mbuni" {
+  path_targets = [{
+    __path__ = "/var/log/mbuni/{mmsbox,mmsc,access-mmsbox,access-mmsc}.log",
+    job = "mmsc",
+    source = "mbuni_file",
+    service_name = "mbuni",
+    instance = constants.hostname,
+  }]
+  sync_period = "5s"
+}
+
+loki.source.file "mbuni" {
+  targets = local.file_match.mbuni.targets
+  // First start: live entries only. A saved position takes precedence on restart.
+  tail_from_end = true
+  forward_to = [loki.write.central.receiver]
+}
+
+loki.write "central" {
+  endpoint {
+    // Set the full push URL in /etc/alloy/mbuni.env.
+    url = sys.env("LOKI_PUSH_URL")
+    // Add the authentication required by your Loki gateway here.
+  }
+}

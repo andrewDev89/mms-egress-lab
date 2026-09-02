@@ -17,6 +17,13 @@ services:
 
   mms-api:
     build: .
+    labels:
+      mms.logs: mmsc
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
       CARRIERS: tmobile-sdg1,tmobile-sdg2
@@ -38,6 +45,13 @@ services:
 
   worker-tmobile-egress:
     build: .
+    labels:
+      mms.logs: mmsc
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     command: ["python", "-m", "mms_queue.worker"]
     environment:
       DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
@@ -116,8 +130,37 @@ services:
     depends_on:
       prometheus:
         condition: service_started
+      loki:
+        condition: service_started
+
+  loki:
+    image: grafana/loki:3.7.7
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ./loki/config.yml:/etc/loki/config.yml:ro
+      - loki-data:/loki
+
+  alloy:
+    image: grafana/alloy:v1.19.2
+    restart: unless-stopped
+    command:
+      - run
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-mms-egress-lab}
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${MBUNI_LOG_DIR:-./logs/mbuni}:/var/log/mbuni:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on:
+      - loki
 
 volumes:
   psql-mms-data:
   prometheus-data:
   grafana-data:
+  loki-data:
+  alloy-data:
