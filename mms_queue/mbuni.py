@@ -30,6 +30,10 @@ def submit(payload):
     except (urllib.error.URLError, TimeoutError) as exc:
         # Never retry intake automatically: the native queue may already own it.
         raise HTTPException(502, "Mbuni intake failed; acceptance may be unknown. Check Mbuni logs before resubmitting.") from exc
+    # Upstream can return HTTP 200 and log "Queued" even when fetching content fails.
+    # Only an explicit Accepted response confirms submission.
+    if reply.lower().startswith("failed to fetch content from url"):
+        raise HTTPException(502, "Mbuni could not fetch media_url; acceptance was not confirmed. Use http://mms-api:8000/demo/media/pixel.gif or omit media_url for text-only MMS.")
     if not reply.startswith("Accepted: "):
         raise HTTPException(502, "Mbuni did not confirm acceptance")
     return reply.removeprefix("Accepted: ").strip()

@@ -22,3 +22,13 @@ def test_partial_burst_reports_confirmed_acceptances():
             enqueue_message_burst(BurstCreate(count=3), Response())
         assert result.value.detail['accepted_for_delivery'] == 1
         assert result.value.detail['last_message_id'] == 'native-1'
+
+
+def test_http_200_media_fetch_failure_is_not_acceptance():
+    from unittest.mock import MagicMock
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = b"failed to fetch content from url [https://example.com/image.jpg]!"
+    with patch.object(mbuni.urllib.request, 'urlopen', return_value=response) as send:
+        with pytest.raises(HTTPException, match='could not fetch media_url'):
+            mbuni.submit({'sender':'123','recipient':'456','media_url':'https://example.com/image.jpg'})
+        assert send.call_count == 1
