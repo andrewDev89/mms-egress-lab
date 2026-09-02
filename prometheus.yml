@@ -17,7 +17,3 @@ scrape_configs:
   - job_name: "mock-carriers"
     static_configs:
       - targets: ["tmobile-sdg1:8080", "tmobile-sdg2:8080"]
-
-  - job_name: "mms-workers"
-    static_configs:
-      - targets: ["worker-tmobile-egress:9102"]

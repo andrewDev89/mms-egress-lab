@@ -1,5 +1,4 @@
 """Optional end-to-end Alloy/Loki/Grafana test in the disposable log stack."""
-import json
 import os
 from pathlib import Path
 import urllib.parse
@@ -20,12 +19,11 @@ def query_logs(query):
 
 def test_lab_outcomes_and_live_host_files_reach_grafana():
     eventually(lambda: request('/ready', base='http://loki:3100')[0] == 200, timeout=90)
-    # The backpressure integration scenario runs first and generates both outcomes.
-    rejected = eventually(lambda: query_logs('{job="mmsc",source="lab",event="retry_scheduled"}'))
-    delivered = eventually(lambda: query_logs('{job="mmsc",source="lab",event="delivered"}'))
-    assert any(json.loads(line).get('http_status') == 429 for line in rejected)
-    assert all('message_id' in json.loads(line) for line in delivered)
-    assert all('sender' not in json.loads(line) and 'recipient' not in json.loads(line) for line in delivered)
+    # These lines are emitted by the real C Mbuni process in the native scenario.
+    eventually(lambda: query_logs('{job="mmsc",source="mbuni_file"} |= "HTTP returned status=[429]"'))
+    eventually(lambda: query_logs('{job="mmsc",source="mbuni_file"} |= "HTTP returned status=[503]"'))
+    eventually(lambda: query_logs('{job="mmsc",source="mbuni_file"} |= "Sent MMSBox Outgoing Queue"'))
+    eventually(lambda: query_logs('{job="mmsc",source="mbuni_file"} |= "max attempts allowed"'))
 
     # Exercise the actual host configuration against all four user-specified files.
     names = ('mmsbox.log', 'mmsc.log', 'access-mmsbox.log', 'access-mmsc.log')
@@ -59,7 +57,24 @@ def test_lab_outcomes_and_live_host_files_reach_grafana():
     panel = next(p for p in data['dashboard']['panels'] if p['title'] == 'MMSC-side Logs')
     assert panel['datasource']['uid'] == 'loki'
     query = '/api/datasources/proxy/uid/loki/loki/api/v1/query_range?' + urllib.parse.urlencode({
-        'query': '{job="mmsc", source=~"lab"} |= "retry_scheduled"', 'since': '1h',
+        'query': '{job="mmsc", source="mbuni_file"} |= "HTTP returned status=[429]"', 'since': '1h',
     })
     status, data = request(query, base='http://grafana:3000')
     assert status == 200 and data['data']['result']
+
+
+def test_dashboard_queries_use_live_native_metrics():
+    def query(expr):
+        status, data = request('/api/v1/query?' + urllib.parse.urlencode({'query':expr}), base='http://prometheus:9090')
+        assert status == 200 and data['status'] == 'success', data
+        return data['data']['result']
+    eventually(lambda: query('mbuni_up == 1'))
+    eventually(lambda: query('haproxy_frontend_http_responses_total{frontend="fe_http",code="4xx"} > 0'))
+    eventually(lambda: query('haproxy_frontend_http_responses_total{frontend="fe_http",code="5xx"} > 0'))
+    _, data = request('/api/dashboards/uid/mms-egress-tmobile', base='http://grafana:3000')
+    for panel in data['dashboard']['panels']:
+        if panel.get('datasource', {}).get('uid') == 'loki':
+            continue
+        for target in panel.get('targets', []):
+            if 'expr' in target:
+                query(target['expr'].replace('$__rate_interval','1m'))

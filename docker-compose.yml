@@ -34,6 +34,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
+      mbuni:
+        condition: service_healthy
       psql-mms:
         condition: service_healthy
       tmobile-sdg1:
@@ -43,34 +45,40 @@ services:
       haproxy:
         condition: service_started
 
-  worker-tmobile-egress:
+  db-init:
     build: .
-    labels:
-      mms.logs: mmsc
+    command: ["python", "-m", "mms_queue.db"]
+    environment:
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+
+  mbuni:
+    build:
+      context: .
+      dockerfile: mbuni/Dockerfile
+    restart: unless-stopped
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
-    command: ["python", "-m", "mms_queue.worker"]
     environment:
-      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
-      CARRIERS: tmobile-sdg1,tmobile-sdg2
-      WORKER_OPERATOR: tmobile
-      WORKER_ID: worker-tmobile-egress
-      WORKER_METRICS_PORT: 9102
-      WORKER_CONCURRENCY: 200
-      WORKER_BATCH_SIZE: 1000
-      WORKER_SEND_TPS: ${WORKER_SEND_TPS:-600}
+      MBUNI_SEND_TPS: ${MBUNI_SEND_TPS:-600}
+      MBUNI_MAX_SEND_ATTEMPTS: ${MBUNI_MAX_SEND_ATTEMPTS:-100}
       SEND_ATTEMPT_BACK_OFF_SECONDS: ${SEND_ATTEMPT_BACK_OFF_SECONDS:-2}
-      HAPROXY_EGRESS_URL: http://haproxy:8080
-      HAPROXY_RUNTIME_HOST: haproxy
-      HAPROXY_RUNTIME_PORT: 9999
-      TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
-      TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
+    volumes:
+      - mbuni-spool:/var/spool/mbuni
+      - ${MBUNI_LOG_DIR:-./logs/mbuni}:/var/log/mbuni
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:10002/status?password=lab-admin"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     depends_on:
-      psql-mms:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
       haproxy:
         condition: service_started
 
@@ -159,6 +167,7 @@ services:
       - loki
 
 volumes:
+  mbuni-spool:
   psql-mms-data:
   prometheus-data:
   grafana-data:

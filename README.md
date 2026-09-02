@@ -1,210 +1,118 @@
-# MMS Egress Queue Lab
+# MMS Egress Lab — Mbuni 1.6.0
 
-Production-flavored MMS egress demo with HAProxy, PostgreSQL, FastAPI, one T-Mobile operator worker, mock SDG binds, Prometheus, and Grafana.
-
-Message flow:
+This demo runs **real open-source Mbuni 1.6.0**. Mbuni's `mmsbox` executable owns the PostgreSQL queue, constructs MM7/SOAP messages, sends them through HAProxy, and schedules retries. The Python service provides the demo control page, traffic generation, and a read-only view of the native queue. The two SDG endpoints remain mocks.
 
 ```text
-MMSC API -> PostgreSQL queue -> T-Mobile egress worker -> HAProxy -> tmobile-sdg1 / tmobile-sdg2
+Demo control / REST API → Mbuni SendMMS → native PostgreSQL queue
+                                              ↓
+                                     Mbuni mmsbox (type=soap)
+                                              ↓
+                                          HAProxy
+                                              ↓
+                                   SDG1 / SDG2 MM7 mocks
+
+Mbuni log files → Alloy → Loki → Grafana
+Native queue / Mbuni admin status / HAProxy → Prometheus → Grafana
 ```
 
-The queue stores operator-level T-Mobile work. HAProxy owns the final SDG bind decision and failover.
+This is the public Mbuni code, not Skycore's private build. The image builds both `mmsc` and `mmsbox`; this HTTP/SOAP egress scenario runs **mmsbox**, the Mbuni component that supports outbound `type=soap`. It does not simulate handset MM1, WAP push, an SMPP bind, or final handset delivery. In this lab, “bind down” means an unavailable mock SDG HTTP endpoint.
 
-The API periodically syncs the configured healthy bind TPS from PostgreSQL into HAProxy's runtime capacity map. This keeps HAProxy aligned after container restarts, even when PostgreSQL remembers a higher demo capacity than the static `capacity.map` file.
+## Start on your Mac
 
-## Run
+With Docker Desktop running:
 
-```bash
-docker compose up -d
+```sh
+git pull
+docker compose up -d --build --remove-orphans
 ```
 
-Useful local URLs:
+The first build downloads and compiles Mbuni and takes longer than subsequent starts. The public source is pinned to the `1.6.0` tag commit and verified by SHA-256; see [the build notes](mbuni/README.md).
 
-- MMS API: http://localhost:8000/docs
-- Demo control page: http://localhost:8000/demo/control
-- Prometheus: http://localhost:9090
-- Grafana: http://localhost:3000
-- HAProxy stats: http://localhost:8404
-- PostgreSQL: `localhost:15432`, database `psql_mms`, user/password `mms`/`mms`
+- [Control page](http://localhost:8000/demo/control)
+- [Grafana](http://localhost:3000), initially `admin` / `admin`
+- [API docs](http://localhost:8000/docs)
+- [HAProxy stats](http://localhost:8404)
+- [Prometheus](http://localhost:9090)
 
-Grafana is provisioned automatically when the stack starts. The Prometheus datasource is named `Prometheus`, uses the stable datasource UID `prometheus`, and points at `http://prometheus:9090` inside the Docker Compose network. The MMS Egress Lab dashboard is loaded from `grafana/dashboards`.
+Open the **MMS Egress Lab — Mbuni 1.6.0** dashboard. Native Mbuni logs are selected by default. The control page injects messages into real Mbuni, and controls the two mock endpoints and HAProxy's aggregate allowance.
 
-Grafana's default login is `admin` / `admin` on a fresh volume.
+Existing Grafana credentials, bind capacities, and PostgreSQL data are preserved. `--remove-orphans` stops the former Python worker. Old simulator rows in the `messages` table are retained but are not sent or shown in the native dashboard. New native tables are initialized even when the PostgreSQL volume already exists; old simulator payloads are not silently migrated into a live sender.
 
-If you change Python dependencies or Docker build inputs, rebuild with:
+To restart the database without clearing it:
 
-```bash
-docker compose up -d --build
+```sh
+docker compose restart psql-mms
+docker compose restart mbuni mms-api
 ```
 
-## MMSC-side Logs
+A restart does not make old data new. The control page's Clear Queue action deletes active native outgoing messages; it preserves archives and historical Prometheus samples, and cannot recall HTTP requests already in flight.
 
-Alloy and Loki start with the lab. The dashboard's **MMSC-side Logs** panel shows sender rejections, scheduled retries, delivery failures, and successful deliveries alongside the queue metrics. Use **Log source** and **Log contains** to choose and search logs.
+## Show backpressure
 
-For production, run the supplied Alloy host configuration as a systemd service on each Mbuni host. It continuously tails `mmsbox.log`, `mmsc.log`, `access-mmsbox.log`, and `access-mmsc.log` in `/var/log/mbuni`, adds the host and filename, and ships to a configured central Loki endpoint. No file copying is required.
+1. Send a small burst, such as 100 messages, and confirm SDG acceptance and native Mbuni logs.
+2. Bring both binds down, then send another burst. HAProxy's allowance becomes zero and it returns HTTP 429. Mbuni keeps retrying from its native PostgreSQL queue.
+3. Watch active queue depth/age, **HAProxy HTTP Errors / sec**, **Mbuni Outbound Errors / sec**, and the native log lines containing `HTTP returned status=[429]`.
+4. Restore one bind at a small positive capacity, then restore the other. Queued messages are sent when their native retry time becomes due.
 
-See [logging setup and host deployment instructions](docs/mbuni-logging.md). The local lab emits simulation logs; real Mbuni collection requires installing the host collector and providing your Loki endpoint.
+Partial capacity loss does not necessarily cause rejected requests: offered traffic must exceed the remaining allowance. The cumulative HTTP-error panel stays at its previous value after recovery; the rate panel drops toward zero. HTTP 5xx includes 503 when no backend is available despite a positive configured allowance.
 
-## Grafana Validation
+HAProxy uses an aggregate five-second rolling allowance and returns errors; it does not send a target TPS value to Mbuni. Mbuni decides when to try again. The SDG mocks validate multipart MM7 `SubmitReq` and return a correlated SOAP `SubmitRsp` with status 1000. This proves SDG acceptance, not handset delivery.
 
-After startup, open `http://localhost:3000` and log in with `admin` / `admin` if prompted.
+## Sender and retry settings
 
-Verify Prometheus is reachable from Grafana by opening the `Prometheus` datasource in Grafana and using **Save & test**. It should point to `http://prometheus:9090`.
+Set these in `.env`, then recreate the Mbuni container with `docker compose up -d --build mbuni`:
 
-Verify the dashboard uses the portable datasource UID:
-
-```bash
-grep -R '"uid": "prometheus"' grafana/dashboards
+```dotenv
+MBUNI_SEND_TPS=600
+MBUNI_MAX_SEND_ATTEMPTS=100
+SEND_ATTEMPT_BACK_OFF_SECONDS=2
 ```
 
-There should be no references to the old machine-local datasource UID:
+`MBUNI_SEND_TPS` sets Mbuni's native `max-throughput`. Upstream sleeps `1 / max-throughput` after a send, outside its connection mutex; multiple send threads and HTTP/SQL latency affect the aggregate rate. It is **not a strict global TPS cap** or a promise of 600 TPS. HAProxy independently enforces its aggregate capacity. The lab uses five native send threads.
 
-```bash
-grep -R "dflck6ecqc5c0""d" .
-```
+Mbuni's own retry logic uses `send-attempt-back-off × attempts`, queue polling, expiry, and the global `maximum-send-attempts`. Retry settings apply to the process, not individual messages. The former REST `max_attempts` parameter is rejected. No Python delivery worker or retry scheduler remains.
 
-## Mbuni-style HTTP Backpressure
+## Messages and database access
 
-This lab models the sending/retry boundary of a Mbuni `type = soap` connection. The Python sender and mock SDGs still exchange JSON over HTTP; this is **not a full MM7/SOAP implementation or validation of a production Mbuni build**.
-
-```text
-Submission -> accepted into PostgreSQL (202)
-Worker -> HAProxy -> healthy SDG -> delivered
-Worker <- HTTP 429 from HAProxy at capacity -> queue retry
-Worker <- HTTP 503 / other non-2xx / network error -> queue retry
-```
-
-The sender does not read carrier capacity. HAProxy enforces an aggregate allowance over a five-second rolling window and rejects excess requests with 429, including every request at zero capacity. The window permits bursts; it is not strict evenly spaced per-second delivery. HTTP 503 responses can occur when no backend is available, including during health transitions. HTTP rejection counters include responses observed through HAProxy, not just responses generated by HAProxy itself.
-
-The inspected [Mbuni SOAP sender source](https://github.com/markjeee/mbuni/blob/8b54b8bd42170de7bf26e6d74705f644573c6d3f/mmsbox/bearerbox.c#L1031-L1154) retries non-2xx responses. Its [queue retry code](https://github.com/markjeee/mbuni/blob/8b54b8bd42170de7bf26e6d74705f644573c6d3f/mmsbox/bearerbox.c#L1538-L1550) schedules a delay proportional to attempt count. The lab follows that pattern using `SEND_ATTEMPT_BACK_OFF_SECONDS` (default 2): delays are 2, 4, 6, 8 seconds, and so on. It does not adapt its global TPS from responses or honor `Retry-After`. The default retry limit is 100 attempts; existing rows keep their saved limits. Message expiry and SOAP-body error classification are not modeled. Verify the deployed Mbuni version before applying this behavior to production.
-
-Set sender speed independently when starting the stack:
-
-```bash
-WORKER_SEND_TPS=600 SEND_ATTEMPT_BACK_OFF_SECONDS=2 docker compose up -d --build
-```
-
-These settings affect the worker. Bind controls continue to set HAProxy capacity. Fresh databases default to 300 TPS per bind; existing databases preserve their capacities, so set each bind to 300 in the control page for the scenario below.
-
-### Demo sequence
-
-1. Start with both binds healthy at 300 TPS each and the sender at 600 TPS.
-2. In the control page, bring one bind down and send a burst of 5,000 messages. Incoming submissions still return 202. The sender attempts at its configured rate, while HAProxy accepts approximately 300 TPS and rejects excess attempts.
-3. Bring the second bind down while work remains. HAProxy rejects attempts, and messages wait for their next retry. If the queue is empty, submit another burst.
-4. Restore both binds. Messages deliver when their retry times arrive; recovery may be delayed by accumulated backoff. Rows already marked failed after exhausting attempts do not automatically restart.
-
-In Grafana, use a recent time range and watch:
-
-- **Egress Backpressure — Rejected Attempts / sec:** actual HTTP rejection rate, broken out as 429, 503, or other statuses.
-- **Retries and Transport Errors / sec:** scheduled retries, network errors, and exhausted retry limits.
-- **Queue Worker Traffic:** actual attempts and deliveries compared with configured sender TPS.
-- **Queue Backlog / Oldest Queue Age:** messages still waiting or in progress.
-- **Rejected Attempts Since Worker Restart:** cumulative attempts, not unique messages. Repeated rejections of one message count repeatedly. Clearing the queue does not reset counters.
-
-A down bind alone does not create rejection events: there must be an attempted delivery. When all messages are waiting for their retry time, the rejection rate can temporarily fall to zero even during an outage. Status still reports capacity loss or no healthy capacity independently of queue depth.
-
-### API compatibility change
-
-`/messages` and `/demo/messages/burst` now return 202 after successful queue insertion even with both binds down. Burst and blast responses no longer include `queued_due_to_carrier_backpressure`, and that submission-counter label is no longer emitted. `accepted_for_delivery` means accepted into the queue, not delivered. Historical Prometheus samples remain stored but the submission panel filters to the retained acceptance label. Actual backpressure is measured by the worker's `mms_egress_rejections_total{status_code=...}`.
-
-## Retry Demo
-
-Mark one T-Mobile SDG bind unhealthy, submit a message without choosing a bind, and watch HAProxy send it through the remaining healthy bind:
-
-```bash
-curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
-  -H "Content-Type: application/json" \
-  -d '{"healthy":false}'
-
+```sh
 curl -X POST http://localhost:8000/messages \
-  -H "Content-Type: application/json" \
-  -d '{"sender":"12065550100","recipient":"12065550200","text":"failover demo"}'
+  -H 'Content-Type: application/json' \
+  -d '{"sender":"12065550100","recipient":"12065550199","text":"Real Mbuni MMS"}'
 
-curl -X POST http://localhost:8000/carriers/tmobile-sdg2/health \
-  -H "Content-Type: application/json" \
-  -d '{"healthy":true}'
+docker compose exec psql-mms psql -U mms -d psql_mms
 ```
 
-Metrics are available at `http://localhost:8000/metrics` and are scraped by Prometheus.
+HTTP 202 means Mbuni confirmed native acceptance. `message_id` is Mbuni's transaction ID; use `/messages/{message_id}` or search it in the logs. `/messages` lists native queue row IDs, stored retry counts, and queue timestamps. A `media_url` is fetched by Mbuni as the message content; accompanying `text` becomes its subject. Text-only requests are MMS payloads too.
 
-## Queue Age Alerts
+For a Mac database GUI, connect to `localhost:15432`, database `psql_mms`, user/password `mms` / `mms`. PostgreSQL is its own lab container; it is not inside HAProxy.
 
-Prometheus loads demo alert rules for the oldest active queue entry:
-
-- `MmsQueueOldestAgeWarning`: fires when the oldest queued/sending/retry message is older than 60 seconds.
-- `MmsQueueOldestAgeCritical`: fires when the oldest queued/sending/retry message is older than 5 minutes.
-
-Open `http://localhost:9090/alerts` to see alert state during a backlog demo. Grafana also includes an `Oldest Queue Age` panel with matching green/yellow/red thresholds.
-
-The dashboard also includes queue-age buckets and two ETA views. `Capacity-Based Net Drain ETA` only shows a countdown when the current backlog should shrink at the current healthy bind capacity:
-
-```text
-active backlog / (healthy configured bind TPS - recent submitted rate)
+```sql
+SELECT id, qfname, num_attempts, send_time FROM mms_messages;
+SELECT * FROM lab_native_messages ORDER BY created_at DESC LIMIT 20;
 ```
 
-If submitted traffic is equal to or greater than healthy configured bind TPS, the queue is not draining and the panel reports that the queue is still growing. `Clear Time At Available TPS` answers the common operations question: "If new traffic stopped right now, how long would the current backlog take to clear at the currently available healthy bind capacity?" A down bind is excluded automatically because the estimate multiplies each bind's configured TPS by its health state.
+`mms_messages` / `mms_message_headers` are Mbuni's native tables. Completed queue entries move to `archived_mms_messages` and `archived_mms_message_headers`. **Archived includes success and terminal failure**; it must not be interpreted as delivered. Consult `mmsbox.log` and `mmsbox-cdr.log` (`sent` / `dropped`) for outcomes. `carrier_state` only stores demo control settings. Archives retain message content and need periodic cleanup for long-running labs.
 
-The worker uses its own configured attempt rate (`WORKER_SEND_TPS`, default 600), independent of bind health and capacity. New messages and retries share that rate. It sends batches concurrently and paces subsequent batches by attempted count / configured TPS; latency, concurrency, and retry eligibility can reduce actual throughput. Changing bind health only changes HAProxy's allowance, not the sender rate.
+If an intake request times out, acceptance may be unknown. Check native logs/queue before resubmitting: the adapter deliberately does not automatically retry an ambiguous submission.
 
-## Traffic Burst Demo
+## Logs and autonomous operation
 
-Use this endpoint when you want Grafana to show visible traffic:
+Mbuni writes actual `mmsbox.log`, `access-mmsbox.log`, and `mmsbox-cdr.log` under `./logs/mbuni` on the Mac (mounted as `/var/log/mbuni`). Alloy sends them to Loki automatically. `mmsc.log` and `access-mmsc.log` are collected if present; this egress scenario does not run a separate `mmsc` process or fabricate its logs. Native logs can contain phone numbers and message metadata; use demo data.
 
-```bash
-curl -X POST http://localhost:8000/demo/messages/burst \
-  -H "Content-Type: application/json" \
-  -d '{
-    "count": 1000,
-    "sender": "12065550100",
-    "recipient_prefix": "1206555",
-    "text": "Grafana traffic demo",
-    "max_attempts": 100
-  }'
+Set `MBUNI_LOG_DIR` to override the shared host directory. Keep it a dedicated demo directory, since the container writes there. Logs are raw lines; Loki timestamps represent collection time. Loki retains 72 hours; local Mbuni log files are separate and require rotation/cleanup for extended runs.
+
+For Alloy running directly on a production host, [the host logging guide](docs/mbuni-logging.md) includes a systemd service that automatically collects `/var/log/mbuni/{mmsbox,mmsc,access-mmsbox,access-mmsc}.log`. It does not require Python or the demo control service on that host.
+
+## Validation
+
+The disposable integration stack has no published host ports and uses separate volumes. It validates real multipart SOAP, zero-capacity 429 retries, positive-capacity 503 retries, recovery, native retry exhaustion, native queue inspection, and logs through Alloy/Loki/Grafana.
+
+```sh
+COMPOSE_PROJECT_NAME=mbuni-test docker compose -p mbuni-test \
+  -f tests/compose.integration.yml -f tests/compose.logs.yml up -d --build
+COMPOSE_PROJECT_NAME=mbuni-test docker compose -p mbuni-test \
+  -f tests/compose.integration.yml -f tests/compose.logs.yml logs -f tests
+# Clean up only the disposable test project:
+COMPOSE_PROJECT_NAME=mbuni-test docker compose -p mbuni-test \
+  -f tests/compose.integration.yml -f tests/compose.logs.yml down -v
 ```
-
-`max_attempts` is the retry limit for each message. It is not the number of messages to send.
-
-Clear all demo messages and reset queue depth:
-
-```bash
-curl -X POST http://localhost:8000/demo/messages/clear
-```
-
-Use this before a clean one-message demo. Delivered rows remain visible until the queue is cleared, so a previous message through each SDG bind will show one terminal delivery on each bind even if the most recent test only sent one message.
-
-## Sustained Message Blast Demo
-
-Use this endpoint for a more traditional customer traffic blast. By default it injects 150,000 messages into the MMSC API path at 900 messages/second, which intentionally exceeds a `300 + 300 TPS` egress configuration and should create sustained backlog pressure.
-
-```bash
-curl -X POST http://localhost:8000/demo/messages/blast \
-  -H "Content-Type: application/json" \
-  -d '{
-    "count": 150000,
-    "rate_per_second": 900,
-    "sender": "12065550100",
-    "recipient_prefix": "120655",
-    "text": "Customer traffic blast",
-    "max_attempts": 100
-  }'
-```
-
-The response includes a `job_id`. Check injection progress with:
-
-```bash
-curl http://localhost:8000/demo/messages/blast/<job_id>
-```
-
-Only one blast can run at a time. The default blast takes about 167 seconds to finish injecting; the queue can continue draining afterward.
-
-## Verification
-
-Run the automated tests against a disposable Docker stack with no host ports or persistent lab volumes:
-
-```bash
-docker compose -p mms-backpressure-test -f tests/compose.integration.yml build mms-api
-docker compose -p mms-backpressure-test -f tests/compose.integration.yml up --abort-on-container-exit --exit-code-from tests
-docker compose -p mms-backpressure-test -f tests/compose.integration.yml down -v
-```
-
-The tests cover zero-capacity rejection, acceptance of new submissions during an outage, repeated retries, partial-capacity operation, recovery, HTTP 503 responses, and retry-limit exhaustion. Run the final cleanup command even if tests fail. Only point `MMS_INTEGRATION_URL` at a disposable lab: this test changes bind settings and clears messages.

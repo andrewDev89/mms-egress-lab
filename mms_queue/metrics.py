@@ -1,76 +1,38 @@
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, REGISTRY, generate_latest
+from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily
+from .mbuni import native_status
 
-delivery_attempts = Counter(
-    "mms_delivery_attempts_total",
-    "Total carrier delivery attempts.",
-    ["carrier"],
-)
-messages_submitted = Counter(
-    "mms_messages_submitted_total",
-    "Total T-Mobile operator-level messages accepted into PostgreSQL.",
-    ["result"],
-)
-delivered_total = Counter(
-    "mms_delivered_total",
-    "Total messages delivered to carriers.",
-    ["carrier"],
-)
-failed_total = Counter(
-    "mms_failed_total",
-    "Total messages that reached terminal failure.",
-    ["carrier"],
-)
-retry_total = Counter(
-    "mms_retry_total",
-    "Total messages scheduled for retry.",
-    ["carrier"],
-)
-egress_rejections = Counter(
-    "mms_egress_rejections_total",
-    "Rejected HTTP delivery attempts, including repeated attempts for the same message.",
-    ["status_code"],
-)
-# Initialize bounded label values so rate panels have a zero baseline before failures.
-for status_code in ("429", "503", "other"):
-    egress_rejections.labels(status_code)
-transport_errors = Counter(
-    "mms_egress_transport_errors_total",
-    "Delivery attempts that failed without an HTTP response.",
-)
-worker_send_tps = Gauge(
-    "mms_worker_send_tps",
-    "Configured worker attempt rate, independent of healthy carrier capacity.",
-)
-queue_depth = Gauge(
-    "mms_queue_depth",
-    "Messages in PostgreSQL by carrier and status.",
-    ["carrier", "status"],
-)
-queue_oldest_age = Gauge(
-    "mms_queue_oldest_age_seconds",
-    "Age in seconds of the oldest active PostgreSQL queue entry by carrier and status.",
-    ["carrier", "status"],
-)
-queue_age_bucket = Gauge(
-    "mms_queue_age_bucket",
-    "Active PostgreSQL queue entries grouped by queue age bucket.",
-    ["carrier", "bucket"],
-)
-carrier_health = Gauge(
-    "mms_carrier_healthy",
-    "Carrier health state, 1 for healthy and 0 for unhealthy.",
-    ["carrier"],
-)
-carrier_capacity = Gauge(
-    "mms_carrier_tps_capacity",
-    "Configured carrier TPS capacity.",
-    ["carrier"],
-)
-worker_delivery_seconds = Histogram(
-    "mms_worker_delivery_seconds",
-    "Time spent delivering a message to a carrier.",
-    ["carrier"],
-)
+messages_submitted = Counter("mms_messages_submitted_total", "Messages accepted by native Mbuni through the demo API.", ["result"])
+queue_depth = Gauge("mms_queue_depth", "Native Mbuni PostgreSQL queue entries; archives are not delivery receipts.", ["carrier", "status"])
+queue_oldest_age = Gauge("mms_queue_oldest_age_seconds", "Oldest active native Mbuni queue entry.", ["carrier", "status"])
+queue_age_bucket = Gauge("mms_queue_age_bucket", "Native Mbuni active queue age buckets.", ["carrier", "bucket"])
+carrier_health = Gauge("mms_carrier_healthy", "Configured mock bind health.", ["carrier"])
+carrier_capacity = Gauge("mms_carrier_tps_capacity", "Configured mock bind capacity.", ["carrier"])
+
+
+class MbuniCollector:
+    def collect(self):
+        up = GaugeMetricFamily("mbuni_up", "Native Mbuni admin endpoint reachable.")
+        try:
+            rows = native_status()
+        except Exception:
+            up.add_metric([], 0)
+            yield up
+            return
+        up.add_metric([], 1)
+        yield up
+        for name, description, field, kind in (
+            ("mbuni_mt_sent", "Mbuni successful outbound PDUs since process/connection restart; not handset delivery.", "sent", CounterMetricFamily),
+            ("mbuni_mt_errors", "Mbuni outbound errors, transient and terminal, since process/connection restart.", "errors", CounterMetricFamily),
+            ("mbuni_configured_throughput", "Native Mbuni configured throughput; actual rate depends on threads and latency.", "throughput", GaugeMetricFamily),
+        ):
+            metric = kind(name, description, labels=["mmsc"])
+            for row in rows:
+                metric.add_metric([row["id"]], row[field])
+            yield metric
+
+
+REGISTRY.register(MbuniCollector())
 
 
 def render_metrics():

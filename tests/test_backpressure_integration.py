@@ -49,75 +49,113 @@ def set_bind(name, healthy, capacity):
     assert request(f'/carriers/{name}/health', {'healthy': healthy})[0] == 200
 
 
-def worker_counter(name, label=''):
-    _, body = request('/metrics', base='http://worker-tmobile-egress:9102')
-    prefix = name + label + ' '
-    return sum(float(line.split()[-1]) for line in body.splitlines() if line.startswith(prefix))
+def metric(name):
+    _, body = request('/metrics')
+    return sum(float(line.split()[-1]) for line in body.splitlines()
+               if line.startswith(name + '{') or line.startswith(name + ' '))
 
 
-def messages():
-    return request('/messages?limit=100')[1]
+def native_rows():
+    return request('/messages?limit=200')[1]
 
 
-def test_outage_rejection_retry_recovery_and_exhaustion():
+def test_native_soap_backpressure_and_recovery():
     eventually(lambda: request('/health')[0] == 200)
-    set_bind('tmobile-sdg1', False, 10)
-    set_bind('tmobile-sdg2', False, 10)
-
-    # Zero capacity must deny even the first request in an empty rate window.
-    for _ in range(3):
-        assert request('/submit', {'message_id': 0}, base='http://haproxy:8080')[0] == 429
-
-    # All intake paths accept into the durable queue even during total outage.
-    code, job = request('/demo/messages/blast', {'count': 3, 'rate_per_second': 3})
-    assert code == 202
-    def blast_done():
-        result = request('/demo/messages/blast/' + job['job_id'])[1]
-        return result if result['status'] == 'completed' else None
-    completed = eventually(blast_done)
-    assert completed['accepted_for_delivery'] == 3
-    assert 'queued_due_to_carrier_backpressure' not in completed
-    assert request('/demo/messages/clear', {})[0] == 200
-
-    code, burst = request('/demo/messages/burst', {'count': 40, 'max_attempts': 100})
-    assert code == 202 and burst['accepted_for_delivery'] == 40
-    eventually(lambda: any(m['attempts'] >= 2 and m['status'] == 'retry' for m in messages()))
-    assert all(m['status'] != 'delivered' for m in messages())
-    assert worker_counter('mms_egress_rejections_total', '{status_code="429"}') > 0
-    assert worker_counter('mms_retry_total', '{carrier="haproxy"}') > 0
-    assert worker_counter('mms_worker_send_tps') == 20
-
-    # Reduced capacity delivers some traffic and continues rejecting excess.
-    before = worker_counter('mms_egress_rejections_total', '{status_code="429"}')
-    set_bind('tmobile-sdg1', True, 5)
-    eventually(lambda: any(m['status'] == 'delivered' for m in messages()))
-    eventually(lambda: worker_counter('mms_egress_rejections_total', '{status_code="429"}') > before)
-    assert worker_counter('mms_worker_send_tps') == 20
-
-    # Retry eligibility, not a capacity lookup by the sender, drives recovery.
+    assert metric('mbuni_up') == 1
+    assert metric('mbuni_configured_throughput') == 20
+    # Former per-message retry controls must not silently pretend to affect Mbuni.
+    assert request('/messages', {'sender':'12065550100','recipient':'12065550199','text':'test','max_attempts':2})[0] == 422
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 0)
+    sent_before = metric('mbuni_mt_sent_total')
+    errors_before = metric('mbuni_mt_errors_total')
+    code, result = request('/demo/messages/burst', {'count':8,'text':'native Mbuni outage test'})
+    assert code == 202 and result['enqueued'] == 8
+    first_id = result['first_message_id']
+    assert first_id.startswith('Mbuni-')
+    def retried():
+        rows = [r for r in native_rows() if r['status'] == 'retry']
+        return rows if len(rows) == 8 and min(r['attempts'] for r in rows) >= 2 else None
+    rows = eventually(retried)
+    assert metric('mbuni_mt_sent_total') == sent_before
+    assert metric('mbuni_mt_errors_total') >= errors_before + 16
+    assert all(r['next_attempt_at'] for r in rows)
+    code, row = request('/messages/' + first_id)
+    assert code == 200 and row['status'] == 'retry'
+    # Restore a single bind; native retries must recover without another submission.
     set_bind('tmobile-sdg1', True, 20)
-    set_bind('tmobile-sdg2', True, 20)
-    eventually(lambda: len(messages()) == 40 and all(m['status'] == 'delivered' for m in messages()))
+    eventually(lambda: metric('mbuni_mt_sent_total') >= sent_before + 8)
+    eventually(lambda: request('/messages/' + first_id)[1]['status'] == 'archived')
+    _, carrier_metrics = request('/metrics', base='http://tmobile-sdg1:8080')
+    assert 'result="accepted"' in carrier_metrics
+    assert not any(r['status'] in ('queued','retry') for r in native_rows())
 
-    # Actual backend outage while configured capacity stays positive gives 503.
-    for name in ('tmobile-sdg1', 'tmobile-sdg2'):
-        assert request('/health', {'healthy': False}, base=f'http://{name}:8080')[0] == 200
-    before = worker_counter('mms_egress_rejections_total', '{status_code="503"}')
-    code, message = request('/messages', {'sender': 'a', 'recipient': 'b', 'max_attempts': 100})
+    # Positive configured allowance with both real mock endpoints unhealthy => 503.
+    # This deliberately bypasses the control page's configured capacity calculation.
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 20)
+        request('/health', {'healthy':False}, base=f'http://{bind}:8080')
+    eventually(lambda: request('/submit', {}, base='http://haproxy:8080')[0] == 503)
+    before = metric('mbuni_mt_sent_total')
+    code, accepted = request('/messages', {'sender':'12065550100','recipient':'12065550199','text':'503 recovery'})
     assert code == 202
-    eventually(lambda: worker_counter('mms_egress_rejections_total', '{status_code="503"}') > before)
-    for name in ('tmobile-sdg1', 'tmobile-sdg2'):
-        set_bind(name, True, 20)
-    eventually(lambda: request('/messages/' + str(message['message_id']))[1]['status'] == 'delivered')
+    eventually(lambda: request('/messages/' + accepted['message_id'])[1]['status'] == 'retry')
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        request('/health', {'healthy':True}, base=f'http://{bind}:8080')
+    eventually(lambda: metric('mbuni_mt_sent_total') >= before + 1)
 
-    # A finite retry budget still applies during a prolonged capacity outage.
-    set_bind('tmobile-sdg1', False, 20)
-    set_bind('tmobile-sdg2', False, 20)
-    code, message = request('/messages', {'sender': 'a', 'recipient': 'b', 'max_attempts': 2})
+    # Native retry exhaustion is reported in Mbuni logs/CDR, not guessed from archives.
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 0)
+    code, accepted = request('/messages', {'sender':'12065550100','recipient':'12065550200','text':'native retry exhaustion'})
     assert code == 202
-    def failed():
-        row = request('/messages/' + str(message['message_id']))[1]
-        return row if row['status'] == 'failed' else None
-    row = eventually(failed)
-    assert row['attempts'] == 2
-    assert '429' in row['last_error']
+    eventually(lambda: request('/messages/' + accepted['message_id'])[1]['status'] == 'archived', timeout=40)
+    assert metric('mbuni_mt_sent_total') == before + 1
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 20)
+
+
+def test_native_media_url_submission():
+    import base64
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    pixel = base64.b64decode('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==')
+
+    class Media(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/gif')
+            self.send_header('Content-Length', str(len(pixel)))
+            self.end_headers()
+            self.wfile.write(pixel)
+
+    server = ThreadingHTTPServer(('0.0.0.0', 8099), Media)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        before = metric('mbuni_mt_sent_total')
+        code, result = request('/messages', {
+            'sender':'12065550100', 'recipient':'12065550199',
+            'media_url':'http://tests:8099/pixel.gif', 'text':'Native media test',
+        })
+        assert code == 202, result
+        eventually(lambda: metric('mbuni_mt_sent_total') >= before + 1)
+        eventually(lambda: request('/messages/' + result['message_id'])[1]['status'] == 'archived')
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_native_blast_and_queue_clear_preserve_archives():
+    archived_before = sum(r['status'] == 'archived' for r in native_rows())
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 0)
+    code, job = request('/demo/messages/blast', {'count':3,'rate_per_second':10,'text':'native clear test'})
+    assert code == 202
+    eventually(lambda: request('/demo/messages/blast/' + job['job_id'])[1]['status'] == 'completed')
+    eventually(lambda: sum(r['status'] == 'retry' for r in native_rows()) == 3)
+    code, result = request('/demo/messages/clear', {})
+    assert code == 200 and result['deleted_messages'] == 3
+    assert not any(r['status'] in ('queued','retry') for r in native_rows())
+    assert sum(r['status'] == 'archived' for r in native_rows()) == archived_before
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 20)
