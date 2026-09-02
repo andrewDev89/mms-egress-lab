@@ -115,18 +115,19 @@ def test_native_soap_backpressure_and_recovery():
         set_bind(bind, True, 20)
 
 
-def test_native_media_url_submission():
+def test_native_default_image_submission():
     for bind in ('tmobile-sdg1','tmobile-sdg2'):
         set_bind(bind, True, 20)
     status, schema = request('/openapi.json')
     assert status == 200
-    # Exercise exactly the URL shown by Swagger, not a separate test-only server.
-    media_url = schema['components']['schemas']['MessageCreate']['properties']['media_url']['examples'][0]
-    assert media_url == 'http://mms-api:8000/demo/media/pixel.gif'
+    for name in ('MessageCreate', 'BurstCreate', 'BlastCreate'):
+        media = schema['components']['schemas'][name]['properties']['media_url']
+        assert media['default'] == 'http://mms-api:8000/demo/media/pixel.gif'
+    # The user does not need to supply a URL, including from the control page.
     before = metric('mbuni_mt_sent_total')
     code, result = request('/messages', {
         'sender':'12065550100', 'recipient':'12065550199',
-        'media_url':media_url, 'text':'Native media test',
+        'text':'Automatic native image test',
     })
     assert code == 202, result
     eventually(lambda: metric('mbuni_mt_sent_total') >= before + 1)

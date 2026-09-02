@@ -33,7 +33,7 @@ def submit(payload):
     # Upstream can return HTTP 200 and log "Queued" even when fetching content fails.
     # Only an explicit Accepted response confirms submission.
     if reply.lower().startswith("failed to fetch content from url"):
-        raise HTTPException(502, "Mbuni could not fetch media_url; acceptance was not confirmed. Use http://mms-api:8000/demo/media/pixel.gif or omit media_url for text-only MMS.")
+        raise HTTPException(502, "Mbuni could not fetch media_url; acceptance was not confirmed. Use http://mms-api:8000/demo/media/pixel.gif or set media_url to null for text-only MMS.")
     if not reply.startswith("Accepted: "):
         raise HTTPException(502, "Mbuni did not confirm acceptance")
     return reply.removeprefix("Accepted: ").strip()

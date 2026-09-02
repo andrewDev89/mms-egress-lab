@@ -43,6 +43,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
+DEMO_MEDIA_URL = "http://mms-api:8000/demo/media/pixel.gif"
+
 haproxy_sync_started = False
 
 
@@ -51,9 +53,9 @@ class MessageCreate(BaseModel):
     sender: str = Field(..., examples=["12065550100"])
     recipient: str = Field(..., examples=["12065550199"])
     media_url: str | None = Field(
-        None,
-        examples=["http://mms-api:8000/demo/media/pixel.gif"],
-        description="Media URL reachable from Mbuni. Use the bundled demo image or omit for text-only MMS.",
+        DEMO_MEDIA_URL,
+        examples=[DEMO_MEDIA_URL],
+        description="Uses the bundled demo image automatically. Set null for text-only MMS, or provide a URL reachable from Mbuni.",
     )
     text: str | None = Field(None, examples=["Demo MMS payload"])
 
@@ -64,9 +66,9 @@ class BurstCreate(BaseModel):
     sender: str = Field("12065550100", examples=["12065550100"])
     recipient_prefix: str = Field("1206555", examples=["1206555"])
     media_url: str | None = Field(
-        None,
-        examples=["http://mms-api:8000/demo/media/pixel.gif"],
-        description="Media URL reachable from Mbuni. Use the bundled demo image or omit for text-only MMS.",
+        DEMO_MEDIA_URL,
+        examples=[DEMO_MEDIA_URL],
+        description="Uses the bundled demo image automatically. Set null for text-only MMS, or provide a URL reachable from Mbuni.",
     )
     text: str = Field("Demo MMS payload", examples=["Demo MMS payload"])
 
@@ -88,9 +90,9 @@ class BlastCreate(BaseModel):
     sender: str = Field("12065550100", examples=["12065550100"])
     recipient_prefix: str = Field("120655", examples=["120655"])
     media_url: str | None = Field(
-        None,
-        examples=["http://mms-api:8000/demo/media/pixel.gif"],
-        description="Media URL reachable from Mbuni. Use the bundled demo image or omit for text-only MMS.",
+        DEMO_MEDIA_URL,
+        examples=[DEMO_MEDIA_URL],
+        description="Uses the bundled demo image automatically. Set null for text-only MMS, or provide a URL reachable from Mbuni.",
     )
     text: str = Field("Traditional MMS blast demo", examples=["Traditional MMS blast demo"])
 
@@ -555,7 +557,7 @@ def demo_control():
 
     <section class="panel">
       <h2>Traffic Burst</h2>
-      <p>Messages enter real Mbuni even when binds are down. Mbuni sends MM7/SOAP and manages retries. Watch native queue depth, HAProxy HTTP errors, and Mbuni logs in Grafana.</p>
+      <p>The bundled demo image is included automatically. Messages enter real Mbuni even when binds are down. Mbuni sends MM7/SOAP and manages retries. Watch native queue depth, HAProxy HTTP errors, and Mbuni logs in Grafana.</p>
       <div class="capacity">
         <input id="burstCount" type="number" min="1" max="5000" value="1000">
         <button onclick="sendBurst()">Send Burst</button>
