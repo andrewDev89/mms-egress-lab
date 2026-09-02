@@ -208,35 +208,22 @@ def startup():
 @app.post("/messages")
 def enqueue_message(payload: MessageCreate, response: Response):
     with connect() as conn:
-        row, immediate_capacity = create_message(conn, payload.model_dump())
+        row = create_message(conn, payload.model_dump())
 
-    if immediate_capacity:
-        messages_submitted.labels("accepted_for_delivery").inc()
-        response.status_code = status.HTTP_202_ACCEPTED
-        return {
-            "message_id": row["id"],
-            "status": row["status"],
-            "operator": "tmobile",
-            "assigned_bind": row["carrier"],
-            "delivery": "accepted_for_delivery",
-        }
-
-    messages_submitted.labels("queued_due_to_carrier_backpressure").inc()
-    response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    messages_submitted.labels("accepted_for_delivery").inc()
+    response.status_code = status.HTTP_202_ACCEPTED
     return {
         "message_id": row["id"],
         "status": row["status"],
         "operator": "tmobile",
         "assigned_bind": row["carrier"],
-        "delivery": "queued_due_to_carrier_backpressure",
+        "delivery": "accepted_for_delivery",
     }
 
 
 @app.post("/demo/messages/burst")
 def enqueue_message_burst(payload: BurstCreate, response: Response):
     message_ids = []
-    accepted_for_delivery = 0
-    queued_due_to_backpressure = 0
 
     with connect() as conn:
         for index in range(payload.count):
@@ -247,34 +234,21 @@ def enqueue_message_burst(payload: BurstCreate, response: Response):
                 "text": f"{payload.text} #{index + 1}",
                 "max_attempts": payload.max_attempts,
             }
-            row, immediate_capacity = create_message(conn, message_payload)
+            row = create_message(conn, message_payload)
             message_ids.append(row["id"])
-            if immediate_capacity:
-                accepted_for_delivery += 1
-            else:
-                queued_due_to_backpressure += 1
 
             if (index + 1) % config.BURST_COMMIT_INTERVAL == 0:
                 conn.commit()
 
         conn.commit()
 
-    messages_submitted.labels("accepted_for_delivery").inc(accepted_for_delivery)
-    messages_submitted.labels("queued_due_to_carrier_backpressure").inc(
-        queued_due_to_backpressure
-    )
-
-    if queued_due_to_backpressure:
-        response.status_code = status.HTTP_429_TOO_MANY_REQUESTS
-    else:
-        response.status_code = status.HTTP_202_ACCEPTED
-
+    messages_submitted.labels("accepted_for_delivery").inc(len(message_ids))
+    response.status_code = status.HTTP_202_ACCEPTED
     return {
         "operator": "tmobile",
         "requested": payload.count,
         "enqueued": len(message_ids),
-        "accepted_for_delivery": accepted_for_delivery,
-        "queued_due_to_carrier_backpressure": queued_due_to_backpressure,
+        "accepted_for_delivery": len(message_ids),
         "first_message_id": message_ids[0],
         "last_message_id": message_ids[-1],
     }
@@ -293,19 +267,11 @@ def run_message_blast(job_id, payload):
     started_at = time.monotonic()
     sent = 0
     accepted_for_delivery = 0
-    queued_due_to_backpressure = 0
     first_message_id = None
     last_message_id = None
 
     try:
         with connect() as conn:
-            immediate_capacity = total_available_tps(conn) > 0
-            result_label = (
-                "accepted_for_delivery"
-                if immediate_capacity
-                else "queued_due_to_carrier_backpressure"
-            )
-
             while sent < payload.count:
                 chunk_started_at = time.monotonic()
                 chunk_size = min(
@@ -335,11 +301,8 @@ def run_message_blast(job_id, payload):
                     last_message_id = ids[-1]
 
                 sent += len(rows)
-                messages_submitted.labels(result_label).inc(len(rows))
-                if immediate_capacity:
-                    accepted_for_delivery += len(rows)
-                else:
-                    queued_due_to_backpressure += len(rows)
+                messages_submitted.labels("accepted_for_delivery").inc(len(rows))
+                accepted_for_delivery += len(rows)
 
                 elapsed = time.monotonic() - started_at
                 target_elapsed = sent / payload.rate_per_second
@@ -348,7 +311,6 @@ def run_message_blast(job_id, payload):
                     status="running",
                     enqueued=sent,
                     accepted_for_delivery=accepted_for_delivery,
-                    queued_due_to_carrier_backpressure=queued_due_to_backpressure,
                     first_message_id=first_message_id,
                     last_message_id=last_message_id,
                     elapsed_seconds=round(elapsed, 3),
@@ -412,7 +374,6 @@ def start_message_blast(payload: BlastCreate, background_tasks: BackgroundTasks)
             "target_rate_per_second": payload.rate_per_second,
             "enqueued": 0,
             "accepted_for_delivery": 0,
-            "queued_due_to_carrier_backpressure": 0,
             "first_message_id": None,
             "last_message_id": None,
             "submitted_at": now,
@@ -642,7 +603,7 @@ def demo_control():
 
     <section class="panel">
       <h2>Traffic Burst</h2>
-      <p>Generate a visible queue/worker load for Grafana.</p>
+      <p>Messages are accepted into the queue even when binds are down. The sender keeps its configured rate; rejected deliveries retry with increasing delays. Watch Egress Backpressure in Grafana.</p>
       <div class="capacity">
         <input id="burstCount" type="number" min="1" max="5000" value="1000">
         <button onclick="sendBurst()">Send Burst</button>

@@ -25,6 +25,22 @@ retry_total = Counter(
     "Total messages scheduled for retry.",
     ["carrier"],
 )
+egress_rejections = Counter(
+    "mms_egress_rejections_total",
+    "Rejected HTTP delivery attempts, including repeated attempts for the same message.",
+    ["status_code"],
+)
+# Initialize bounded label values so rate panels have a zero baseline before failures.
+for status_code in ("429", "503", "other"):
+    egress_rejections.labels(status_code)
+transport_errors = Counter(
+    "mms_egress_transport_errors_total",
+    "Delivery attempts that failed without an HTTP response.",
+)
+worker_send_tps = Gauge(
+    "mms_worker_send_tps",
+    "Configured worker attempt rate, independent of healthy carrier capacity.",
+)
 queue_depth = Gauge(
     "mms_queue_depth",
     "Messages in PostgreSQL by carrier and status.",

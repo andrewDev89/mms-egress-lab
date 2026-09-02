@@ -57,7 +57,7 @@
                 "4": {
                   "color": "red",
                   "index": 4,
-                  "text": "Carrier retry/failure pressure"
+                  "text": "Egress HTTP rejection pressure"
                 },
                 "5": {
                   "color": "dark-red",
@@ -112,14 +112,15 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(\n  vector(0)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0\n  )\n)\nor\n(\n  vector(5)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) <= 0\n  )\n)\nor\n(\n  vector(3)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    )\n    <\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    )\n  )\n)\nor\n(\n  vector(2)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    (\n      sum(rate(mms_messages_submitted_total[1m]))\n      -\n      sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))\n    ) > 0\n  )\n)\nor\n(\n  vector(1)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    (\n      sum(rate(mms_messages_submitted_total[1m]))\n      -\n      sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))\n    ) <= 0\n  )\n)",
+          "expr": "(vector(5) and (sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) * max by (carrier) (mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) <= 0))\nor (vector(3) and (sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) * max by (carrier) (mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) < sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}))))\nor (vector(4) and (sum(rate(mms_egress_rejections_total{job=\"mms-workers\"}[1m])) > 0))\nor (vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0))\nor (vector(2) and ((sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))) > 0))\nor (vector(1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))) <= 0))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "New panel",
-      "type": "stat"
+      "title": "Egress Status",
+      "type": "stat",
+      "description": "Capacity loss is shown even with an empty queue. Actual rejection and retry rates are shown alongside it."
     },
     {
       "datasource": {
@@ -310,10 +311,16 @@
           "legendFormat": "{{carrier}} delivered/sec",
           "range": true,
           "refId": "B"
+        },
+        {
+          "refId": "C",
+          "expr": "max(mms_worker_send_tps{job=\"mms-workers\"})",
+          "legendFormat": "Configured sender TPS"
         }
       ],
       "title": "Queue Worker Traffic",
-      "type": "timeseries"
+      "type": "timeseries",
+      "description": "The configured sender rate does not change with bind health. Attempt rate includes retries; actual throughput also depends on latency, concurrency, and messages due for retry."
     },
     {
       "datasource": {
@@ -445,41 +452,14 @@
       "pluginVersion": "12.3.0",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"delivered\"})",
-          "legendFormat": "{{carrier}} delivered",
-          "range": false,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"retry\"})",
-          "legendFormat": "{{carrier}} retries",
-          "range": false,
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "sum by (carrier) (mms_queue_depth{carrier=~\"tmobile-sdg1|tmobile-sdg2\",status=\"failed\"})",
-          "legendFormat": "{{carrier}} failed",
-          "range": false,
-          "refId": "C"
+          "refId": "A",
+          "expr": "sum by (carrier, status) (mms_queue_depth{status=~\"delivered|failed\"})",
+          "legendFormat": "{{carrier}} {{status}}"
         }
       ],
       "title": "Terminal Outcomes Since Last Clear",
-      "type": "bargauge"
+      "type": "bargauge",
+      "description": "Terminal message rows since queue clear, including failures before a bind was assigned. Live retries are shown in the retry-rate panel."
     },
     {
       "datasource": {
@@ -1029,14 +1009,271 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (result) (mms_messages_submitted_total)",
-          "legendFormat": "{{result}}",
+          "expr": "sum(mms_messages_submitted_total{result=\"accepted_for_delivery\"})",
+          "legendFormat": "Accepted into queue",
           "range": true,
           "refId": "A"
         }
       ],
       "title": "Messages Submitted Since API Restart",
-      "type": "stat"
+      "type": "stat",
+      "description": "Cumulative accepted messages since API restart. Queue acceptance is independent of carrier health; backpressure is measured at egress."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (rate(mms_egress_rejections_total{job=\"mms-workers\"}[$__rate_interval]))",
+          "legendFormat": "HTTP {{status_code}}"
+        }
+      ],
+      "title": "Egress Backpressure \u2014 Rejected Attempts / sec",
+      "type": "timeseries",
+      "description": "Actual HTTP rejections observed by the worker. 429 is HAProxy throttling; 503 is unavailable service. Counts attempts, not unique messages; rate falls when no messages are due for retry."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "showValues": false,
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(mms_retry_total{job=\"mms-workers\"}[$__rate_interval]))",
+          "legendFormat": "Retries scheduled"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(mms_egress_transport_errors_total{job=\"mms-workers\"}[$__rate_interval]))",
+          "legendFormat": "Transport errors"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(mms_failed_total{job=\"mms-workers\"}[$__rate_interval]))",
+          "legendFormat": "Retry limit exhausted"
+        }
+      ],
+      "title": "Retries and Transport Errors / sec",
+      "type": "timeseries",
+      "description": "Retries scheduled after failed attempts, plus network failures without an HTTP response. Retries use increasing per-message delays and stop at the attempt limit."
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "id": 15,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.0",
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status_code) (mms_egress_rejections_total{job=\"mms-workers\"})",
+          "legendFormat": "HTTP {{status_code}}"
+        }
+      ],
+      "title": "Rejected Attempts Since Worker Restart",
+      "type": "stat",
+      "description": "Cumulative HTTP rejection attempts, including repeats for the same message. This does not reset when the queue is cleared. Use the rejection-rate graph for current activity."
     }
   ],
   "preload": false,
@@ -1058,5 +1295,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 2
+  "version": 3
 }
