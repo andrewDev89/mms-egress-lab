@@ -11,15 +11,17 @@ from .db import connect, init_db
 from .metrics import (
     delivered_total,
     delivery_attempts,
+    egress_rejections,
     failed_total,
     retry_total,
+    transport_errors,
     worker_delivery_seconds,
+    worker_send_tps,
 )
 from .repository import (
     claim_messages,
     mark_delivered_many,
     mark_delivery_error,
-    total_available_tps,
 )
 
 
@@ -41,8 +43,6 @@ def submit_to_haproxy(message):
         method="POST",
     )
     with urllib.request.urlopen(request, timeout=5) as response:
-        if response.status >= 300:
-            raise RuntimeError(f"carrier returned HTTP {response.status}")
         return json.loads(response.read().decode())
 
 
@@ -51,7 +51,17 @@ def process_message(message):
     try:
         with worker_delivery_seconds.labels("haproxy").time():
             carrier_response = submit_to_haproxy(message)
-    except (urllib.error.URLError, TimeoutError, RuntimeError) as exc:
+    except urllib.error.HTTPError as exc:
+        code = str(exc.code) if exc.code in (429, 503) else "other"
+        egress_rejections.labels(code).inc()
+        exc.close()
+        return {
+            "status": "error",
+            "message": message,
+            "error": str(exc),
+        }
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        transport_errors.inc()
         return {
             "status": "error",
             "message": message,
@@ -68,14 +78,10 @@ def process_message(message):
 
 def run_batch(worker_id, executor):
     with connect() as conn:
-        available_tps = total_available_tps(conn)
-        if available_tps <= 0:
-            return "no_capacity", 0
-
-        batch_size = max(1, min(available_tps, config.WORKER_BATCH_SIZE))
+        batch_size = min(config.WORKER_SEND_TPS, config.WORKER_BATCH_SIZE)
         messages = claim_messages(conn, worker_id, batch_size)
         if not messages:
-            return "idle", available_tps
+            return "idle", 0
 
     futures = [executor.submit(process_message, message) for message in messages]
     delivered_by_carrier = {}
@@ -97,35 +103,39 @@ def run_batch(worker_id, executor):
         for result in errors:
             message = result["message"]
             updated = mark_delivery_error(conn, message, result["error"])
+            if updated is None:  # The control page may clear an in-flight message.
+                continue
             if updated["status"] == "failed":
                 failed_total.labels("haproxy").inc()
             else:
                 retry_total.labels("haproxy").inc()
 
-    return "sent", available_tps
+    return "sent", len(messages)
 
 
 def main():
     init_db()
     worker_id = config.WORKER_ID
+    worker_send_tps.set(config.WORKER_SEND_TPS)
     start_http_server(config.WORKER_METRICS_PORT)
     print(
         f"worker started | operator={config.WORKER_OPERATOR} "
         f"egress_url={config.HAPROXY_EGRESS_URL} worker_id={worker_id} "
         f"metrics_port={config.WORKER_METRICS_PORT} "
         f"concurrency={config.WORKER_CONCURRENCY} "
+        f"send_tps={config.WORKER_SEND_TPS} "
         f"batch_size={config.WORKER_BATCH_SIZE}",
         flush=True,
     )
     with ThreadPoolExecutor(max_workers=config.WORKER_CONCURRENCY) as executor:
         while True:
             started_at = time.monotonic()
-            status, _available_tps = run_batch(worker_id, executor)
-            if status in {"idle", "no_capacity"}:
+            status, attempted = run_batch(worker_id, executor)
+            if status == "idle":
                 time.sleep(config.WORKER_POLL_SECONDS)
             else:
                 elapsed = time.monotonic() - started_at
-                time.sleep(max(0, 1 - elapsed))
+                time.sleep(max(0, attempted / config.WORKER_SEND_TPS - elapsed))
 
 
 if __name__ == "__main__":

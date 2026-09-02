@@ -3,16 +3,12 @@ from datetime import datetime, timezone
 from . import config
 
 
-RETRY_DELAYS_SECONDS = [2, 5, 10]
-
-
 def utcnow():
     return datetime.now(timezone.utc)
 
 
 def retry_delay_for_attempt(attempts):
-    index = max(0, min(attempts - 1, len(RETRY_DELAYS_SECONDS) - 1))
-    return RETRY_DELAYS_SECONDS[index]
+    return config.SEND_ATTEMPT_BACK_OFF_SECONDS * max(1, attempts)
 
 
 def is_capacity_available(carrier_state):
@@ -61,7 +57,7 @@ def create_message(conn, payload):
         ),
     ).fetchone()
 
-    return row, is_any_bind_available(conn)
+    return row
 
 
 def create_messages_bulk(conn, payloads):

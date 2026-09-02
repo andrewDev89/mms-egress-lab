@@ -1,0 +1,63 @@
+# Isolated acceptance test stack: no host ports and no persistent data volumes.
+services:
+  psql-mms:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mms
+      POSTGRES_PASSWORD: mms
+      POSTGRES_DB: psql_mms
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U mms -d psql_mms']
+      interval: 1s
+      timeout: 3s
+      retries: 30
+  mms-api:
+    build: ..
+    image: mms-egress-integration:local
+    environment:
+      HAPROXY_SYNC_SECONDS: 1
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      haproxy:
+        condition: service_started
+  worker-tmobile-egress:
+    image: mms-egress-integration:local
+    command: [python, -m, mms_queue.worker]
+    environment:
+      WORKER_SEND_TPS: 20
+      WORKER_CONCURRENCY: 20
+      SEND_ATTEMPT_BACK_OFF_SECONDS: 1
+    depends_on:
+      psql-mms:
+        condition: service_healthy
+      haproxy:
+        condition: service_started
+  tmobile-sdg1:
+    image: mms-egress-integration:local
+    command: [uvicorn, mms_queue.carrier_mock:app, --host, 0.0.0.0, --port, '8080']
+    environment:
+      CARRIER_NAME: tmobile-sdg1
+  tmobile-sdg2:
+    image: mms-egress-integration:local
+    command: [uvicorn, mms_queue.carrier_mock:app, --host, 0.0.0.0, --port, '8080']
+    environment:
+      CARRIER_NAME: tmobile-sdg2
+  haproxy:
+    image: haproxy:latest
+    volumes:
+      - ../haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ../capacity.map:/usr/local/etc/haproxy/capacity.map:ro
+    depends_on:
+      - tmobile-sdg1
+      - tmobile-sdg2
+  tests:
+    image: mms-egress-integration:local
+    command: [python, -m, pytest, /tests, -q, -o, cache_dir=/tmp/pytest-cache]
+    volumes:
+      - .:/tests:ro
+    environment:
+      MMS_INTEGRATION_URL: http://mms-api:8000
+    depends_on:
+      - mms-api
+      - worker-tmobile-egress
