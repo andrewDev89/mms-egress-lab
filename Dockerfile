@@ -6,6 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY mms_queue ./mms_queue
+COPY mbuni/tables.sql ./mbuni/tables.sql
 
 ENV PYTHONUNBUFFERED=1
 

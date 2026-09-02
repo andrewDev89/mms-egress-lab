@@ -14,39 +14,7 @@ CREATE TABLE IF NOT EXISTS carrier_state (
     tps_capacity INTEGER NOT NULL DEFAULT 10 CHECK (tps_capacity >= 0),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
-
-CREATE TABLE IF NOT EXISTS messages (
-    id BIGSERIAL PRIMARY KEY,
-    sender TEXT NOT NULL,
-    recipient TEXT NOT NULL,
-    media_url TEXT,
-    text TEXT,
-    carrier TEXT REFERENCES carrier_state(carrier),
-    status TEXT NOT NULL CHECK (status IN ('queued', 'sending', 'retry', 'delivered', 'failed')),
-    attempts INTEGER NOT NULL DEFAULT 0,
-    max_attempts INTEGER NOT NULL DEFAULT 3,
-    next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    locked_by TEXT,
-    locked_at TIMESTAMPTZ,
-    last_error TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    accepted_at TIMESTAMPTZ,
-    delivered_at TIMESTAMPTZ
-);
-
-CREATE INDEX IF NOT EXISTS idx_messages_carrier_status_due
-    ON messages (carrier, status, next_attempt_at);
-
-CREATE INDEX IF NOT EXISTS idx_messages_created_at
-    ON messages (created_at DESC);
 """
-
-LEGACY_CARRIER_RENAMES = {
-    "carrier1": "tmobile-sdg1",
-    "carrier2": "tmobile-sdg2",
-}
-
 
 @contextmanager
 def connect():
@@ -73,26 +41,10 @@ def init_db():
         conn.execute("SELECT pg_advisory_lock(424242)")
         try:
             conn.execute(SCHEMA)
-            conn.execute("ALTER TABLE messages ALTER COLUMN carrier DROP NOT NULL")
-            for old_carrier, new_carrier in LEGACY_CARRIER_RENAMES.items():
-                conn.execute(
-                    """
-                    INSERT INTO carrier_state (carrier, healthy, tps_capacity, updated_at)
-                    SELECT %s, healthy, tps_capacity, now()
-                    FROM carrier_state
-                    WHERE carrier = %s
-                    ON CONFLICT (carrier) DO NOTHING
-                    """,
-                    (new_carrier, old_carrier),
-                )
-                conn.execute(
-                    "UPDATE messages SET carrier = %s WHERE carrier = %s",
-                    (new_carrier, old_carrier),
-                )
-                conn.execute(
-                    "DELETE FROM carrier_state WHERE carrier = %s",
-                    (old_carrier,),
-                )
+            if conn.execute("SELECT to_regclass('public.mms_messages') AS name").fetchone()["name"] is None:
+                from pathlib import Path
+                conn.execute(Path("/app/mbuni/tables.sql").read_text())
+            conn.execute(NATIVE_VIEW)
             for carrier in config.CARRIERS:
                 conn.execute(
                     """
@@ -104,3 +56,22 @@ def init_db():
                 )
         finally:
             conn.execute("SELECT pg_advisory_unlock(424242)")
+
+
+# Archives do not distinguish success from expiry/fatal failure. Do not infer delivery.
+NATIVE_VIEW = """
+CREATE OR REPLACE VIEW lab_native_messages AS
+SELECT id, qfname, sender, created AS created_at, num_attempts AS attempts,
+       CASE WHEN isfinite(send_time) THEN send_time ELSE NULL END AS next_attempt_at,
+       'unassigned'::text AS carrier,
+       CASE WHEN num_attempts = 0 THEN 'queued' ELSE 'retry' END AS status
+FROM mms_messages WHERE qdir = 'mmsbox_outgoing'
+UNION ALL
+SELECT id, qfname, sender, created, num_attempts,
+       CASE WHEN isfinite(send_time) THEN send_time ELSE NULL END,
+       'unassigned', 'archived'
+FROM archived_mms_messages WHERE qdir = 'mmsbox_outgoing';
+"""
+
+if __name__ == "__main__":
+    init_db()

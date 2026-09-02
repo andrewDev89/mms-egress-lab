@@ -1,63 +1,155 @@
-# Isolated acceptance test stack: no host ports and no persistent data volumes.
+# Disposable native Mbuni integration stack; no host ports.
 services:
-  psql-mms:
-    image: postgres:16-alpine
+  db-init:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command:
+    - python
+    - -m
+    - mms_queue.db
+    depends_on:
+      psql-mms:
+        condition: service_healthy
     environment:
-      POSTGRES_USER: mms
-      POSTGRES_PASSWORD: mms
-      POSTGRES_DB: psql_mms
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+  haproxy:
+    depends_on:
+      tmobile-sdg1:
+        condition: service_started
+      tmobile-sdg2:
+        condition: service_started
+    image: haproxy:latest
+    volumes:
+    - type: bind
+      source: ../haproxy.cfg
+      target: /usr/local/etc/haproxy/haproxy.cfg
+      read_only: true
+    - type: bind
+      source: ../capacity.map
+      target: /usr/local/etc/haproxy/capacity.map
+      read_only: true
+  mbuni:
+    build:
+      context: ..
+      dockerfile: mbuni/Dockerfile
+    depends_on:
+      db-init:
+        condition: service_completed_successfully
+      haproxy:
+        condition: service_started
+    environment:
+      MBUNI_MAX_SEND_ATTEMPTS: '5'
+      MBUNI_SEND_TPS: '20'
+      SEND_ATTEMPT_BACK_OFF_SECONDS: '1'
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U mms -d psql_mms']
-      interval: 1s
+      test:
+      - CMD
+      - curl
+      - -fsS
+      - http://localhost:10002/status?password=lab-admin
       timeout: 3s
-      retries: 30
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+    volumes:
+    - type: volume
+      source: mbuni-test-logs
+      target: /var/log/mbuni
+    - type: volume
+      source: mbuni-spool
+      target: /var/spool/mbuni
   mms-api:
-    build: ..
-    image: mms-egress-integration:local
-    environment:
-      HAPROXY_SYNC_SECONDS: 1
+    build:
+      context: ..
+      dockerfile: Dockerfile
     depends_on:
-      psql-mms:
-        condition: service_healthy
       haproxy:
         condition: service_started
-  worker-tmobile-egress:
-    image: mms-egress-integration:local
-    command: [python, -m, mms_queue.worker]
-    environment:
-      WORKER_SEND_TPS: 20
-      WORKER_CONCURRENCY: 20
-      SEND_ATTEMPT_BACK_OFF_SECONDS: 1
-    depends_on:
+      mbuni:
+        condition: service_healthy
       psql-mms:
         condition: service_healthy
-      haproxy:
+      tmobile-sdg1:
         condition: service_started
+      tmobile-sdg2:
+        condition: service_started
+    environment:
+      CARRIERS: tmobile-sdg1,tmobile-sdg2
+      DATABASE_URL: postgresql://mms:mms@psql-mms:5432/psql_mms
+      HAPROXY_RUNTIME_HOST: haproxy
+      HAPROXY_RUNTIME_PORT: '9999'
+      TMOBILE_SDG1_URL: http://tmobile-sdg1:8080
+      TMOBILE_SDG2_URL: http://tmobile-sdg2:8080
+    labels:
+      mms.logs: mmsc
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+  psql-mms:
+    environment:
+      POSTGRES_DB: psql_mms
+      POSTGRES_PASSWORD: mms
+      POSTGRES_USER: mms
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - pg_isready -U mms -d psql_mms
+      timeout: 3s
+      interval: 5s
+      retries: 20
+    image: postgres:16-alpine
+    volumes:
+    - type: volume
+      source: psql-mms-data
+      target: /var/lib/postgresql/data
   tmobile-sdg1:
-    image: mms-egress-integration:local
-    command: [uvicorn, mms_queue.carrier_mock:app, --host, 0.0.0.0, --port, '8080']
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command:
+    - uvicorn
+    - mms_queue.carrier_mock:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
     environment:
       CARRIER_NAME: tmobile-sdg1
   tmobile-sdg2:
-    image: mms-egress-integration:local
-    command: [uvicorn, mms_queue.carrier_mock:app, --host, 0.0.0.0, --port, '8080']
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command:
+    - uvicorn
+    - mms_queue.carrier_mock:app
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8080'
     environment:
       CARRIER_NAME: tmobile-sdg2
-  haproxy:
-    image: haproxy:latest
-    volumes:
-      - ../haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
-      - ../capacity.map:/usr/local/etc/haproxy/capacity.map:ro
-    depends_on:
-      - tmobile-sdg1
-      - tmobile-sdg2
   tests:
-    image: mms-egress-integration:local
-    command: [python, -m, pytest, /tests, -q, -o, cache_dir=/tmp/pytest-cache]
-    volumes:
-      - .:/tests:ro
+    build:
+      context: ..
     environment:
       MMS_INTEGRATION_URL: http://mms-api:8000
+    volumes:
+    - .:/tests:ro
+    command:
+    - python
+    - -m
+    - pytest
+    - /tests
+    - -q
+    - -o
+    - cache_dir=/tmp/pytest-cache
     depends_on:
-      - mms-api
-      - worker-tmobile-egress
+      mms-api:
+        condition: service_started
+volumes:
+  mbuni-spool: {}
+  psql-mms-data: {}
+  mbuni-test-logs: {}

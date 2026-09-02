@@ -63,6 +63,11 @@
                   "color": "dark-red",
                   "index": 5,
                   "text": "No healthy carrier capacity"
+                },
+                "6": {
+                  "color": "dark-red",
+                  "index": 6,
+                  "text": "Mbuni unavailable"
                 }
               },
               "type": "value"
@@ -112,7 +117,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(vector(5) and (sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) * max by (carrier) (mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) <= 0))\nor (vector(3) and (sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) * max by (carrier) (mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) < sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}))))\nor (vector(4) and (sum(rate(mms_egress_rejections_total{job=\"mms-workers\"}[1m])) > 0))\nor (vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0))\nor (vector(2) and ((sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))) > 0))\nor (vector(1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))) <= 0))",
+          "expr": "(vector(6) and (max(mbuni_up) == 0))\nor (vector(5) and (sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) * max by (carrier) (mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) <= 0))\nor (vector(3) and (sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}) * max by (carrier) (mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"})) < sum(max by (carrier) (mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}))))\nor (vector(4) and (sum(rate(haproxy_frontend_http_responses_total{frontend=\"fe_http\",code=~\"4xx|5xx\"}[1m])) > 0))\nor (vector(0) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0))\nor (vector(2) and ((sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mbuni_mt_sent_total[1m]))) > 0))\nor (vector(1) and (sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0) and ((sum(rate(mms_messages_submitted_total[1m])) - sum(rate(mbuni_mt_sent_total[1m]))) <= 0))",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -296,8 +301,8 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mms_delivery_attempts_total{carrier=\"haproxy\"}[$__rate_interval]))",
-          "legendFormat": "HAProxy egress attempts/sec",
+          "expr": "sum(rate(mbuni_mt_sent_total[$__rate_interval])) + sum(rate(mbuni_mt_errors_total[$__rate_interval]))",
+          "legendFormat": "Completed send attempts/sec",
           "range": true,
           "refId": "A"
         },
@@ -307,20 +312,20 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (carrier) (rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))",
-          "legendFormat": "{{carrier}} delivered/sec",
+          "expr": "sum by (carrier) (rate(mock_carrier_submissions_total{result=\"accepted\"}[$__rate_interval]))",
+          "legendFormat": "{{carrier}} accepted/sec",
           "range": true,
           "refId": "B"
         },
         {
           "refId": "C",
-          "expr": "max(mms_worker_send_tps{job=\"mms-workers\"})",
-          "legendFormat": "Configured sender TPS"
+          "expr": "max(mbuni_configured_throughput)",
+          "legendFormat": "Mbuni configured TPS"
         }
       ],
-      "title": "Queue Worker Traffic",
+      "title": "Native Mbuni SOAP Traffic",
       "type": "timeseries",
-      "description": "The configured sender rate does not change with bind health. Attempt rate includes retries; actual throughput also depends on latency, concurrency, and messages due for retry."
+      "description": "Sent and error counters come from Mbuni\u2019s native admin status. Successful SubmitRsp means SDG acceptance, not handset delivery. Configured throughput is not a guaranteed rate."
     },
     {
       "datasource": {
@@ -453,13 +458,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (carrier, status) (mms_queue_depth{status=~\"delivered|failed\"})",
-          "legendFormat": "{{carrier}} {{status}}"
+          "expr": "sum(mms_queue_depth{status=\"archived\"})",
+          "legendFormat": "Archived"
         }
       ],
-      "title": "Terminal Outcomes Since Last Clear",
+      "title": "Native Archived Messages",
       "type": "bargauge",
-      "description": "Terminal message rows since queue clear, including failures before a bind was assigned. Live retries are shown in the retry-rate panel."
+      "description": "Mbuni archives both successful and terminally failed messages. An archive is not proof of delivery. Check Mbuni logs/CDRs for the outcome."
     },
     {
       "datasource": {
@@ -522,7 +527,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(mms_messages_submitted_total[$__rate_interval])) - sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[$__rate_interval]))",
+          "expr": "sum(rate(mms_messages_submitted_total[$__rate_interval])) - sum(rate(mbuni_mt_sent_total[$__rate_interval]))",
           "legendFormat": "Net queue growth",
           "range": false,
           "refId": "A"
@@ -712,14 +717,15 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(\n  vector(0)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0\n  )\n)\nor\n(\n  vector(-2)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) <= 0\n  )\n)\nor\n(\n  vector(-1)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) > 0\n  )\n  and\n  (\n    (\n      sum(rate(mms_messages_submitted_total[1m]))\n      -\n      sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))\n    ) >= -5\n  )\n)\nor\n(\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"})\n    /\n    clamp_min(\n      abs(\n        sum(rate(mms_messages_submitted_total[1m]))\n        -\n        sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))\n      ),\n      0.001\n    )\n  )\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) > 0\n  )\n  and\n  (\n    (\n      sum(rate(mms_messages_submitted_total[1m]))\n      -\n      sum(rate(mms_delivered_total{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}[1m]))\n    ) < -5\n  )\n)",
+          "expr": "(\n  vector(0)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) <= 0\n  )\n)\nor\n(\n  vector(-2)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) <= 0\n  )\n)\nor\n(\n  vector(-1)\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) > 0\n  )\n  and\n  (\n    (\n      sum(rate(mms_messages_submitted_total[1m]))\n      -\n      sum(rate(mbuni_mt_sent_total[1m]))\n    ) >= -5\n  )\n)\nor\n(\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"})\n    /\n    clamp_min(\n      abs(\n        sum(rate(mms_messages_submitted_total[1m]))\n        -\n        sum(rate(mbuni_mt_sent_total[1m]))\n      ),\n      0.001\n    )\n  )\n  and\n  (\n    sum(mms_queue_depth{carrier=\"unassigned\",status=~\"queued|sending|retry\"}) > 0\n  )\n  and\n  (\n    sum(\n      max by (carrier) (\n        mms_carrier_tps_capacity{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n      *\n      max by (carrier) (\n        mms_carrier_healthy{carrier=~\"tmobile-sdg1|tmobile-sdg2\"}\n      )\n    ) > 0\n  )\n  and\n  (\n    (\n      sum(rate(mms_messages_submitted_total[1m]))\n      -\n      sum(rate(mbuni_mt_sent_total[1m]))\n    ) < -5\n  )\n)",
           "legendFormat": "Net ETA status",
           "range": false,
           "refId": "A"
         }
       ],
       "title": "Capacity-Based Net Drain ETA",
-      "type": "stat"
+      "type": "stat",
+      "description": "Estimate only. Native retry eligibility, sender throughput and network latency affect actual drain time."
     },
     {
       "datasource": {
@@ -951,7 +957,8 @@
         }
       ],
       "title": "Clear Time At Available TPS",
-      "type": "stat"
+      "type": "stat",
+      "description": "Estimate only. Native retry eligibility, sender throughput and network latency affect actual drain time."
     },
     {
       "datasource": {
@@ -1104,13 +1111,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (status_code) (rate(mms_egress_rejections_total{job=\"mms-workers\"}[$__rate_interval]))",
-          "legendFormat": "HTTP {{status_code}}"
+          "expr": "sum by (code) (rate(haproxy_frontend_http_responses_total{frontend=\"fe_http\",code=~\"4xx|5xx\"}[$__rate_interval]))",
+          "legendFormat": "HTTP {{code}}"
         }
       ],
-      "title": "Egress Backpressure \u2014 Rejected Attempts / sec",
+      "title": "HAProxy HTTP Errors / sec",
       "type": "timeseries",
-      "description": "Actual HTTP rejections observed by the worker. 429 is HAProxy throttling; 503 is unavailable service. Counts attempts, not unique messages; rate falls when no messages are due for retry."
+      "description": "Actual frontend HTTP response classes: 4xx includes capacity rejections (429), 5xx includes unavailable backends (503). These count attempts, including retries; they are not unique queued messages."
     },
     {
       "datasource": {
@@ -1197,23 +1204,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(rate(mms_retry_total{job=\"mms-workers\"}[$__rate_interval]))",
-          "legendFormat": "Retries scheduled"
-        },
-        {
-          "refId": "B",
-          "expr": "sum(rate(mms_egress_transport_errors_total{job=\"mms-workers\"}[$__rate_interval]))",
-          "legendFormat": "Transport errors"
-        },
-        {
-          "refId": "C",
-          "expr": "sum(rate(mms_failed_total{job=\"mms-workers\"}[$__rate_interval]))",
-          "legendFormat": "Retry limit exhausted"
+          "expr": "sum(rate(mbuni_mt_errors_total[$__rate_interval]))",
+          "legendFormat": "Mbuni outbound errors/sec"
         }
       ],
-      "title": "Retries and Transport Errors / sec",
+      "title": "Mbuni Outbound Errors / sec",
       "type": "timeseries",
-      "description": "Retries scheduled after failed attempts, plus network failures without an HTTP response. Retries use increasing per-message delays and stop at the attempt limit."
+      "description": "Native Mbuni mt/errors includes transient and terminal errors. Retrying messages remain in the PostgreSQL queue. Inspect native logs for HTTP codes and final outcomes."
     },
     {
       "datasource": {
@@ -1267,13 +1264,13 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (status_code) (mms_egress_rejections_total{job=\"mms-workers\"})",
-          "legendFormat": "HTTP {{status_code}}"
+          "expr": "sum by (code) (haproxy_frontend_http_responses_total{frontend=\"fe_http\",code=~\"4xx|5xx\"})",
+          "legendFormat": "HTTP {{code}}"
         }
       ],
-      "title": "Rejected Attempts Since Worker Restart",
+      "title": "HAProxy HTTP Errors Since Restart",
       "type": "stat",
-      "description": "Cumulative HTTP rejection attempts, including repeats for the same message. This does not reset when the queue is cleared. Use the rejection-rate graph for current activity."
+      "description": "Actual frontend HTTP response classes: 4xx includes capacity rejections (429), 5xx includes unavailable backends (503). These count attempts, including retries; they are not unique queued messages."
     },
     {
       "id": 16,
@@ -1289,7 +1286,7 @@
         "type": "loki",
         "uid": "loki"
       },
-      "description": "Alloy collects the lab MMSC API and sender logs. Choose Mbuni files for real mounted logs; these use collection time and preserve the original timestamp in the line. Search for message_id, retry_scheduled, delivered, or a literal log fragment. Lab logs are a simulation, not output from a Mbuni binary.",
+      "description": "Real Mbuni mmsbox.log and access-mmsbox.log from /var/log/mbuni, plus demo control logs. The host collector also supports mmsc.log and access-mmsc.log when a production mmsc process writes them.",
       "targets": [
         {
           "refId": "A",
@@ -1329,10 +1326,11 @@
         "name": "mmsc_log_source",
         "label": "Log source",
         "type": "custom",
-        "query": "Lab MMSC : lab, Mbuni files : mbuni_file",
+        "query": "Demo control : lab,Mbuni files : mbuni_file",
         "current": {
-          "text": "Lab MMSC",
-          "value": "lab"
+          "selected": true,
+          "text": "Mbuni files",
+          "value": "mbuni_file"
         },
         "options": [
           {
@@ -1377,7 +1375,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "MMS Egress Lab - T-Mobile Queue",
+  "title": "MMS Egress Lab \u2014 Mbuni 1.6.0",
   "uid": "mms-egress-tmobile",
   "version": 4
 }

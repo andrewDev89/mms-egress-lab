@@ -3,9 +3,6 @@ services:
   mms-api:
     labels:
       mms.logs: mmsc
-  worker-tmobile-egress:
-    labels:
-      mms.logs: mmsc
   loki:
     image: grafana/loki:3.7.7
     command: ["-config.file=/etc/loki/config.yml"]
@@ -19,6 +16,7 @@ services:
     volumes:
       - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - mbuni-test-logs:/var/log/mbuni:ro
     depends_on:
       - loki
   alloy-host:
@@ -29,7 +27,7 @@ services:
       LOKI_PUSH_URL: http://loki:3100/loki/api/v1/push
     volumes:
       - ../alloy/mbuni-host.alloy:/etc/alloy/config.alloy:ro
-      - mbuni-test-logs:/var/log/mbuni:ro
+      - host-test-logs:/var/log/mbuni:ro
     depends_on:
       - loki
   grafana:
@@ -42,14 +40,26 @@ services:
       - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - loki
+  haproxy-exporter:
+    image: quay.io/prometheus/haproxy-exporter:latest
+    command: ["--haproxy.scrape-uri=http://haproxy:8404/;csv"]
+    depends_on: [haproxy]
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ../prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../prometheus-alerts.yml:/etc/prometheus/prometheus-alerts.yml:ro
+    depends_on: [haproxy-exporter, mms-api]
   tests:
     environment:
       MMS_LOG_TEST: '1'
     volumes:
-      - mbuni-test-logs:/var/log/mbuni
+      - host-test-logs:/var/log/mbuni
     depends_on:
       - alloy
       - alloy-host
       - grafana
+      - prometheus
 volumes:
+  host-test-logs:
   mbuni-test-logs:

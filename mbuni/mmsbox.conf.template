@@ -1,0 +1,32 @@
+group = core
+log-file = /var/log/mbuni/mmsbox.log
+access-log = /var/log/mbuni/access-mmsbox.log
+log-level = 1
+
+group = mbuni
+hostname = mbuni
+storage-directory = /var/spool/mbuni
+max-send-threads = 5
+maximum-send-attempts = ${MBUNI_MAX_SEND_ATTEMPTS}
+default-message-expiry = 86400
+queue-run-interval = 0.2
+send-attempt-back-off = ${SEND_ATTEMPT_BACK_OFF_SECONDS}
+queue-manager-module = /opt/mbuni/lib/libmms_pgsql_queue.so
+queue-module-init-data = "internal;host=psql-mms dbname=psql_mms user=mms password=mms options='-c standard_conforming_strings=off'"
+mmsbox-cdr-module-parameters = /var/log/mbuni/mmsbox-cdr.log
+sendmms-port = 10001
+mmsbox-admin-port = 10002
+admin-password = lab-admin
+
+group = mmsc
+id = tmobile
+mmsc-url = http://haproxy:8080/submit
+type = soap
+vasp-id = mbuni-lab
+mm7-version = 5.3.0
+max-throughput = ${MBUNI_SEND_TPS}
+
+group = send-mms-user
+username = lab
+password = lab-send
+mmsc = tmobile

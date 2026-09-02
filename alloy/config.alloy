@@ -1,4 +1,4 @@
-// Only this Compose project's MMSC API and sender are collected.
+// Only this Compose project's demo control API are collected.
 discovery.docker "mmsc" {
   host = "unix:///var/run/docker.sock"
   refresh_interval = "5s"
@@ -40,11 +40,11 @@ loki.process "lab" {
   forward_to = [loki.write.local.receiver]
 }
 
-// Optional real Mbuni files, mounted read-only. Preserve raw lines because the
+// Native Mbuni files, mounted read-only. Preserve raw lines because the
 // production format and timezone may differ. Loki timestamps mean collection time.
 local.file_match "mbuni" {
   path_targets = [{
-    __path__ = "/var/log/mbuni/{mmsbox,mmsc,access-mmsbox,access-mmsc}.log",
+    __path__ = "/var/log/mbuni/{mmsbox,mmsc,access-mmsbox,access-mmsc,mmsbox-cdr}.log",
     job = "mmsc",
     source = "mbuni_file",
     service_name = "mbuni",

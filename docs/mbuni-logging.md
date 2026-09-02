@@ -1,16 +1,12 @@
-# MMSC-side logs with Alloy and Loki
+# Mbuni logs in Grafana
 
-The dashboard combines Prometheus metrics with a Loki-backed **MMSC-side Logs** panel. Alloy reads logs and pushes them to Loki; Grafana queries Loki. There is no manual copy step when Alloy runs on the Mbuni host.
+The default lab runs real Mbuni `mmsbox`. Its `mmsbox.log`, `access-mmsbox.log`, and `mmsbox-cdr.log` are written to the shared `logs/mbuni` directory and collected automatically by Alloy. The native `mmsc` process is not part of this SOAP egress flow, so the lab does not fabricate its logs. The collector also reads `mmsc.log` and `access-mmsc.log` when present.
 
-## Local demo
+The Grafana dashboard defaults to **Mbuni files**. **Demo control** selects the Python API's control/acceptance events; these are distinct from Mbuni's native delivery logs. Native logs may contain phone numbers and metadata. Loki timestamps are collection time.
 
-Run `docker compose up -d --build`. Loki, Alloy, and the Loki datasource are included. Choose **Lab MMSC** in the dashboard's **Log source** dropdown. Trigger an outage and send messages to see `retry_scheduled`, `delivery_failed`, and `delivered` events. **Log contains** accepts a literal text fragment such as `retry_scheduled` or `"message_id": 45`.
+Mbuni, Alloy and Loki restart unless explicitly stopped; Docker Desktop itself must be running on a Mac. Docker log rotation for the API is bounded to three 10 MB files. Mbuni's host files require their own rotation/cleanup for extended runs. Loki retains 72 hours independently of those local files.
 
-The demo collector only discovers containers labeled `mms.logs=mmsc` in its own Compose project: the API and egress worker. It does not collect HAProxy, SDG, or unrelated project logs. Lab events include message IDs, attempt counts, HTTP status, next retry time, and delivery bind; they omit message bodies and phone numbers. Real Mbuni files are preserved as-is and can contain subscriber information.
-
-Lab logs are from the Python MMSC simulation, not a Mbuni binary. Loki and Alloy use persistent volumes, and both restart automatically with Docker unless explicitly stopped. Docker Desktop itself must be running on a Mac. Docker log rotation is bounded to three 10 MB files for the API and worker. Loki is configured for 72-hour retention; compaction removes expired logs asynchronously.
-
-Alloy's Docker log input uses the Docker socket. A read-only socket mount does not make Docker API access read-only. The host file collector below has no Docker dependency or socket access.
+Alloy's optional Docker log input uses the Docker socket. A read-only socket mount does not make Docker API access read-only. The host file collector below has no Docker dependency or socket access.
 
 ## Run Alloy on each production Mbuni host
 
@@ -74,10 +70,10 @@ A same-host collector can then use `LOKI_PUSH_URL=http://127.0.0.1:3100/loki/api
 
 ## Optional local files
 
-For a local smoke test, the Docker collector can also read the same four filenames from `logs/mbuni`, or from an explicit read-only bind mount:
+The demo uses `logs/mbuni` by default. To choose another dedicated demo directory, set `MBUNI_LOG_DIR` for both Mbuni and Alloy:
 
 ```bash
-MBUNI_LOG_DIR=/absolute/path/to/mbuni docker compose up -d alloy
+MBUNI_LOG_DIR=/absolute/path/to/demo-logs docker compose up -d mbuni alloy
 ```
 
 This optional local-file input reads existing content at collection time. Production collection should use the host service above; it does not require copying files to a Mac. Do not run two collectors against the same files and Loki unless duplicate ingestion is intended.

@@ -17,7 +17,6 @@ from .event_log import log_event
 from .metrics import (
     carrier_capacity,
     carrier_health,
-    messages_submitted,
     queue_age_bucket,
     queue_depth,
     queue_oldest_age,
@@ -25,9 +24,7 @@ from .metrics import (
 )
 from .repository import (
     create_message,
-    create_messages_bulk,
     clear_messages,
-    get_carrier_state,
     get_message,
     list_carriers,
     list_messages,
@@ -41,7 +38,7 @@ from .repository import (
 
 app = FastAPI(
     title="MMS Egress Queue Lab",
-    description="Production-flavored PostgreSQL queue demo for carrier delivery backpressure.",
+    description="Mbuni 1.6.0 native PostgreSQL queue and MM7/SOAP egress demo.",
     version="0.1.0",
 )
 
@@ -49,33 +46,24 @@ haproxy_sync_started = False
 
 
 class MessageCreate(BaseModel):
+    model_config = {"extra": "forbid"}
     sender: str = Field(..., examples=["12065550100"])
     recipient: str = Field(..., examples=["12065550199"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str | None = Field(None, examples=["Demo MMS payload"])
-    max_attempts: int = Field(
-        config.DEFAULT_MAX_ATTEMPTS,
-        ge=1,
-        le=config.MAX_ATTEMPTS_LIMIT,
-        examples=[100],
-    )
 
 
 class BurstCreate(BaseModel):
+    model_config = {"extra": "forbid"}
     count: int = Field(..., ge=1, le=5000, examples=[1000])
     sender: str = Field("12065550100", examples=["12065550100"])
     recipient_prefix: str = Field("1206555", examples=["1206555"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str = Field("Demo MMS payload", examples=["Demo MMS payload"])
-    max_attempts: int = Field(
-        config.DEFAULT_MAX_ATTEMPTS,
-        ge=1,
-        le=config.MAX_ATTEMPTS_LIMIT,
-        examples=[100],
-    )
 
 
 class BlastCreate(BaseModel):
+    model_config = {"extra": "forbid"}
     count: int = Field(
         config.BLAST_MESSAGE_COUNT,
         ge=1,
@@ -92,12 +80,6 @@ class BlastCreate(BaseModel):
     recipient_prefix: str = Field("120655", examples=["120655"])
     media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
     text: str = Field("Traditional MMS blast demo", examples=["Traditional MMS blast demo"])
-    max_attempts: int = Field(
-        config.DEFAULT_MAX_ATTEMPTS,
-        ge=1,
-        le=config.MAX_ATTEMPTS_LIMIT,
-        examples=[100],
-    )
 
 
 class CapacityUpdate(BaseModel):
@@ -117,7 +99,8 @@ def serialize(row):
 def serialize_message(row):
     data = serialize(row)
     data["operator"] = "tmobile"
-    data["assigned_bind"] = data.pop("carrier")
+    carrier = data.pop("carrier")
+    data["assigned_bind"] = None if carrier == "unassigned" else carrier
     return data
 
 
@@ -208,10 +191,7 @@ def startup():
 
 @app.post("/messages")
 def enqueue_message(payload: MessageCreate, response: Response):
-    with connect() as conn:
-        row = create_message(conn, payload.model_dump())
-
-    messages_submitted.labels("accepted_for_delivery").inc()
+    row = create_message(payload.model_dump())
     log_event("api", "message_queued", message_id=row["id"])
     response.status_code = status.HTTP_202_ACCEPTED
     return {
@@ -227,24 +207,24 @@ def enqueue_message(payload: MessageCreate, response: Response):
 def enqueue_message_burst(payload: BurstCreate, response: Response):
     message_ids = []
 
-    with connect() as conn:
-        for index in range(payload.count):
-            message_payload = {
-                "sender": payload.sender,
-                "recipient": f"{payload.recipient_prefix}{index:04d}",
-                "media_url": payload.media_url,
-                "text": f"{payload.text} #{index + 1}",
-                "max_attempts": payload.max_attempts,
-            }
-            row = create_message(conn, message_payload)
-            message_ids.append(row["id"])
+    for index in range(payload.count):
+        message_payload = {
+            "sender": payload.sender,
+            "recipient": f"{payload.recipient_prefix}{index:04d}",
+            "media_url": payload.media_url,
+            "text": f"{payload.text} #{index + 1}",
+        }
+        try:
+            row = create_message(message_payload)
+        except HTTPException as exc:
+            raise HTTPException(502, {
+                "error": exc.detail, "accepted_for_delivery": len(message_ids),
+                "first_message_id": message_ids[0] if message_ids else None,
+                "last_message_id": message_ids[-1] if message_ids else None,
+                "note": "Earlier messages remain in Mbuni. The current submission may have been accepted; do not replay the entire burst.",
+            }) from exc
+        message_ids.append(row["id"])
 
-            if (index + 1) % config.BURST_COMMIT_INTERVAL == 0:
-                conn.commit()
-
-        conn.commit()
-
-    messages_submitted.labels("accepted_for_delivery").inc(len(message_ids))
     log_event("api", "burst_queued", count=len(message_ids),
               first_message_id=message_ids[0], last_message_id=message_ids[-1])
     response.status_code = status.HTTP_202_ACCEPTED
@@ -269,83 +249,33 @@ def update_blast_job(job_id, **updates):
 
 def run_message_blast(job_id, payload):
     started_at = time.monotonic()
-    sent = 0
-    accepted_for_delivery = 0
-    first_message_id = None
-    last_message_id = None
-
+    accepted = 0
+    first_id = None
+    last_id = None
     try:
-        with connect() as conn:
-            while sent < payload.count:
-                chunk_started_at = time.monotonic()
-                chunk_size = min(
-                    config.BLAST_CHUNK_SIZE,
-                    payload.rate_per_second,
-                    payload.count - sent,
-                )
-                message_payloads = []
-                for offset in range(chunk_size):
-                    index = sent + offset
-                    message_payloads.append(
-                        {
-                            "sender": payload.sender,
-                            "recipient": f"{payload.recipient_prefix}{index:06d}",
-                            "media_url": payload.media_url,
-                            "text": f"{payload.text} #{index + 1}",
-                            "max_attempts": payload.max_attempts,
-                        }
-                    )
-
-                rows = create_messages_bulk(conn, message_payloads)
-                conn.commit()
-
-                ids = [row["id"] for row in rows]
-                if ids:
-                    first_message_id = first_message_id or ids[0]
-                    last_message_id = ids[-1]
-
-                sent += len(rows)
-                messages_submitted.labels("accepted_for_delivery").inc(len(rows))
-                accepted_for_delivery += len(rows)
-                log_event("api", "blast_chunk_queued", job_id=job_id, count=len(rows),
-                          first_message_id=ids[0] if ids else None,
-                          last_message_id=ids[-1] if ids else None)
-
-                elapsed = time.monotonic() - started_at
-                target_elapsed = sent / payload.rate_per_second
-                update_blast_job(
-                    job_id,
-                    status="running",
-                    enqueued=sent,
-                    accepted_for_delivery=accepted_for_delivery,
-                    first_message_id=first_message_id,
-                    last_message_id=last_message_id,
-                    elapsed_seconds=round(elapsed, 3),
-                    effective_rate_per_second=round(sent / max(0.001, elapsed), 2),
-                    last_chunk_insert_rate=round(
-                        len(rows) / max(0.001, time.monotonic() - chunk_started_at),
-                        2,
-                    ),
-                )
-                time.sleep(max(0, target_elapsed - elapsed))
-
-        update_blast_job(
-            job_id,
-            status="completed",
-            completed_at=time.time(),
-            elapsed_seconds=round(time.monotonic() - started_at, 3),
-            effective_rate_per_second=round(
-                sent / max(0.001, time.monotonic() - started_at),
-                2,
-            ),
-        )
+        for index in range(payload.count):
+            row = create_message({
+                "sender": payload.sender,
+                "recipient": f"{payload.recipient_prefix}{index:06d}",
+                "media_url": payload.media_url,
+                "text": f"{payload.text} #{index + 1}",
+            })
+            accepted += 1
+            first_id = first_id or row["id"]
+            last_id = row["id"]
+            elapsed = time.monotonic() - started_at
+            update_blast_job(job_id, status="running", enqueued=accepted,
+                             accepted_for_delivery=accepted, first_message_id=first_id,
+                             last_message_id=last_id, elapsed_seconds=round(elapsed, 3),
+                             effective_rate_per_second=round(accepted / max(0.001, elapsed), 2))
+            time.sleep(max(0, accepted / payload.rate_per_second - elapsed))
+        update_blast_job(job_id, status="completed", completed_at=time.time())
+        log_event("api", "blast_queued", job_id=job_id, count=accepted)
     except Exception as exc:
-        update_blast_job(
-            job_id,
-            status="failed",
-            error=str(exc),
-            elapsed_seconds=round(time.monotonic() - started_at, 3),
-        )
+        update_blast_job(job_id, status="failed", error=str(exc),
+                         enqueued=accepted, accepted_for_delivery=accepted,
+                         note="Earlier acceptances remain in Mbuni; the current submission may be ambiguous.",
+                         elapsed_seconds=round(time.monotonic() - started_at, 3))
 
 
 @app.post("/demo/messages/blast", status_code=status.HTTP_202_ACCEPTED)
@@ -386,7 +316,6 @@ def start_message_blast(payload: BlastCreate, background_tasks: BackgroundTasks)
             "submitted_at": now,
             "estimated_injection_seconds": round(payload.count / payload.rate_per_second, 3),
             "effective_rate_per_second": 0,
-            "last_chunk_insert_rate": 0,
         }
 
     background_tasks.add_task(run_message_blast, job_id, payload)
@@ -408,17 +337,10 @@ def clear_demo_messages():
         deleted = clear_messages(conn)
     log_event("api", "queue_cleared", deleted_messages=deleted)
 
-    for carrier in [*config.CARRIERS, "unassigned"]:
-        for message_status in ("queued", "sending", "retry", "delivered", "failed"):
-            queue_depth.labels(carrier, message_status).set(0)
-            queue_oldest_age.labels(carrier, message_status).set(0)
-        for bucket in ("<30s", "30-60s", "1-5m", ">5m"):
-            queue_age_bucket.labels(carrier, bucket).set(0)
-
     return {
         "operator": "tmobile",
         "deleted_messages": deleted,
-        "note": "Prometheus counters remain historical; queue depth resets on the next scrape.",
+        "note": "Cleared native queued messages. In-flight HTTP requests may complete. Archives and counters remain historical.",
     }
 
 
@@ -611,7 +533,7 @@ def demo_control():
 
     <section class="panel">
       <h2>Traffic Burst</h2>
-      <p>Messages are accepted into the queue even when binds are down. The sender keeps its configured rate; rejected deliveries retry with increasing delays. Watch Egress Backpressure in Grafana.</p>
+      <p>Messages enter real Mbuni even when binds are down. Mbuni sends MM7/SOAP and manages retries. Watch native queue depth, HAProxy HTTP errors, and Mbuni logs in Grafana.</p>
       <div class="capacity">
         <input id="burstCount" type="number" min="1" max="5000" value="1000">
         <button onclick="sendBurst()">Send Burst</button>
@@ -717,8 +639,7 @@ def demo_control():
             count,
             sender: "12065550100",
             recipient_prefix: "1206555",
-            text: "Grafana control page traffic",
-            max_attempts: 100
+            text: "Grafana control page traffic"
           })
         });
         writeLog(result);
@@ -728,7 +649,7 @@ def demo_control():
     }
 
     async function clearQueue() {
-      const ok = window.confirm("Clear all demo messages from PostgreSQL?");
+      const ok = window.confirm("Clear native queued messages? In-flight sends may still complete; archives remain.");
       if (!ok) {
         return;
       }
@@ -753,7 +674,7 @@ def demo_control():
 
 
 @app.get("/messages/{message_id}")
-def read_message(message_id: int):
+def read_message(message_id: str):
     with connect() as conn:
         row = get_message(conn, message_id)
     if row is None:
@@ -763,7 +684,7 @@ def read_message(message_id: int):
 
 @app.get("/messages")
 def read_messages(
-    status_filter: Literal["queued", "sending", "retry", "delivered", "failed"] | None = Query(
+    status_filter: Literal["queued", "retry", "archived"] | None = Query(
         None, alias="status"
     ),
     bind: str | None = None,
@@ -827,7 +748,7 @@ def metrics():
             queue_depth.labels(*labels).set(row["depth"])
 
         for carrier in [*config.CARRIERS, "unassigned"]:
-            for message_status in ("queued", "sending", "retry", "delivered", "failed"):
+            for message_status in ("queued", "retry", "archived"):
                 if (carrier, message_status) not in seen:
                     queue_depth.labels(carrier, message_status).set(0)
 

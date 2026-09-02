@@ -1,31 +1,5 @@
-from datetime import datetime, timezone
-
-from . import config
-
-
-def utcnow():
-    return datetime.now(timezone.utc)
-
-
-def retry_delay_for_attempt(attempts):
-    return config.SEND_ATTEMPT_BACK_OFF_SECONDS * max(1, attempts)
-
-
-def is_capacity_available(carrier_state):
-    return bool(carrier_state and carrier_state["healthy"] and carrier_state["tps_capacity"] > 0)
-
-
-def is_any_bind_available(conn):
-    row = conn.execute(
-        """
-        SELECT 1
-        FROM carrier_state
-        WHERE healthy = TRUE
-          AND tps_capacity > 0
-        LIMIT 1
-        """
-    ).fetchone()
-    return row is not None
+from .mbuni import submit
+from .metrics import messages_submitted
 
 
 def total_available_tps(conn):
@@ -37,56 +11,6 @@ def total_available_tps(conn):
         """
     ).fetchone()
     return row["total_tps"]
-
-
-def create_message(conn, payload):
-    row = conn.execute(
-        """
-        INSERT INTO messages (
-            sender, recipient, media_url, text, status, max_attempts, accepted_at
-        )
-        VALUES (%s, %s, %s, %s, 'queued', %s, now())
-        RETURNING *
-        """,
-        (
-            payload["sender"],
-            payload["recipient"],
-            payload.get("media_url"),
-            payload.get("text"),
-            payload.get("max_attempts", config.DEFAULT_MAX_ATTEMPTS),
-        ),
-    ).fetchone()
-
-    return row
-
-
-def create_messages_bulk(conn, payloads):
-    if not payloads:
-        return []
-
-    values_sql = ",".join(["(%s, %s, %s, %s, 'queued', %s, now())"] * len(payloads))
-    params = []
-    for payload in payloads:
-        params.extend(
-            [
-                payload["sender"],
-                payload["recipient"],
-                payload.get("media_url"),
-                payload.get("text"),
-                payload.get("max_attempts", config.DEFAULT_MAX_ATTEMPTS),
-            ]
-        )
-
-    return conn.execute(
-        f"""
-        INSERT INTO messages (
-            sender, recipient, media_url, text, status, max_attempts, accepted_at
-        )
-        VALUES {values_sql}
-        RETURNING id
-        """,
-        params,
-    ).fetchall()
 
 
 def get_carrier_state(conn, carrier):
@@ -127,7 +51,15 @@ def set_carrier_health(conn, carrier, healthy):
 
 
 def get_message(conn, message_id):
-    return conn.execute("SELECT * FROM messages WHERE id = %s", (message_id,)).fetchone()
+    if str(message_id).isdigit():
+        return conn.execute("SELECT * FROM lab_native_messages WHERE id = %s", (int(message_id),)).fetchone()
+    return conn.execute("""
+        SELECT m.* FROM lab_native_messages m WHERE m.id IN (
+            SELECT qid FROM mms_message_headers WHERE item = 'H' AND lower(value) = lower(%s)
+            UNION ALL
+            SELECT qid FROM archived_mms_message_headers WHERE item = 'H' AND lower(value) = lower(%s)
+        ) LIMIT 1
+    """, ("X-Mbuni-TransactionID:" + message_id,) * 2).fetchone()
 
 
 def list_messages(conn, status=None, carrier=None, limit=50):
@@ -145,139 +77,16 @@ def list_messages(conn, status=None, carrier=None, limit=50):
     params.append(limit)
 
     return conn.execute(
-        f"SELECT * FROM messages {where} ORDER BY created_at DESC LIMIT %s",
+        f"SELECT * FROM lab_native_messages {where} ORDER BY created_at DESC LIMIT %s",
         params,
     ).fetchall()
-
-
-def claim_next_message(conn, worker_id):
-    row = conn.execute(
-        """
-        WITH next_message AS (
-            SELECT id
-            FROM messages
-            WHERE status IN ('queued', 'retry')
-              AND next_attempt_at <= now()
-            ORDER BY created_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT 1
-        )
-        UPDATE messages
-        SET status = 'sending',
-            carrier = NULL,
-            attempts = attempts + 1,
-            locked_by = %s,
-            locked_at = now(),
-            updated_at = now(),
-            last_error = NULL
-        WHERE id = (SELECT id FROM next_message)
-        RETURNING *
-        """,
-        (worker_id,),
-    ).fetchone()
-    return row
-
-
-def claim_messages(conn, worker_id, limit):
-    rows = conn.execute(
-        """
-        WITH next_messages AS (
-            SELECT id
-            FROM messages
-            WHERE status IN ('queued', 'retry')
-              AND next_attempt_at <= now()
-            ORDER BY created_at
-            FOR UPDATE SKIP LOCKED
-            LIMIT %s
-        )
-        UPDATE messages
-        SET status = 'sending',
-            carrier = NULL,
-            attempts = attempts + 1,
-            locked_by = %s,
-            locked_at = now(),
-            updated_at = now(),
-            last_error = NULL
-        WHERE id IN (SELECT id FROM next_messages)
-        RETURNING *
-        """,
-        (limit, worker_id),
-    ).fetchall()
-    return rows
-
-
-def mark_delivered(conn, message_id, carrier):
-    return conn.execute(
-        """
-        UPDATE messages
-        SET status = 'delivered',
-            carrier = %s,
-            delivered_at = now(),
-            locked_by = NULL,
-            locked_at = NULL,
-            updated_at = now()
-        WHERE id = %s
-        RETURNING *
-        """,
-        (carrier, message_id),
-    ).fetchone()
-
-
-def mark_delivered_many(conn, message_ids, carrier):
-    if not message_ids:
-        return []
-
-    return conn.execute(
-        """
-        UPDATE messages
-        SET status = 'delivered',
-            carrier = %s,
-            delivered_at = now(),
-            locked_by = NULL,
-            locked_at = NULL,
-            updated_at = now()
-        WHERE id = ANY(%s)
-        RETURNING *
-        """,
-        (carrier, message_ids),
-    ).fetchall()
-
-
-def mark_delivery_error(conn, message, error):
-    if message["attempts"] >= message["max_attempts"]:
-        status = "failed"
-        next_attempt_sql = "next_attempt_at"
-        params = (status, error, message["id"])
-        carrier_sql = "carrier"
-    else:
-        status = "retry"
-        delay = retry_delay_for_attempt(message["attempts"])
-        next_attempt_sql = "now() + (%s * interval '1 second')"
-        params = (status, error, delay, message["id"])
-        carrier_sql = "NULL"
-
-    return conn.execute(
-        f"""
-        UPDATE messages
-        SET status = %s,
-            carrier = {carrier_sql},
-            last_error = %s,
-            next_attempt_at = {next_attempt_sql},
-            locked_by = NULL,
-            locked_at = NULL,
-            updated_at = now()
-        WHERE id = %s
-        RETURNING *
-        """,
-        params,
-    ).fetchone()
 
 
 def queue_depths(conn):
     rows = conn.execute(
         """
         SELECT COALESCE(carrier, 'unassigned') AS carrier, status, count(*) AS depth
-        FROM messages
+        FROM lab_native_messages
         GROUP BY COALESCE(carrier, 'unassigned'), status
         ORDER BY COALESCE(carrier, 'unassigned'), status
         """
@@ -292,7 +101,7 @@ def queue_oldest_ages(conn):
             COALESCE(carrier, 'unassigned') AS carrier,
             status,
             EXTRACT(EPOCH FROM now() - min(created_at)) AS age_seconds
-        FROM messages
+        FROM lab_native_messages
         WHERE status IN ('queued', 'sending', 'retry')
         GROUP BY COALESCE(carrier, 'unassigned'), status
         ORDER BY COALESCE(carrier, 'unassigned'), status
@@ -308,7 +117,7 @@ def queue_age_buckets(conn):
             SELECT
                 COALESCE(carrier, 'unassigned') AS carrier,
                 EXTRACT(EPOCH FROM now() - created_at) AS age_seconds
-            FROM messages
+            FROM lab_native_messages
             WHERE status IN ('queued', 'sending', 'retry')
         )
         SELECT
@@ -328,6 +137,16 @@ def queue_age_buckets(conn):
     return rows
 
 
+def create_message(payload):
+    transaction_id = submit(payload)
+    messages_submitted.labels("accepted_for_delivery").inc()
+    # Return Mbuni's transaction ID, which can also be searched in its logs.
+    return {"id": transaction_id, "status": "queued", "carrier": None}
+
+
 def clear_messages(conn):
-    row = conn.execute("DELETE FROM messages RETURNING id").fetchall()
-    return len(row)
+    # Block the native writer during deletion, and remove queue envelopes atomically.
+    # Already in-flight HTTP requests cannot be recalled.
+    conn.execute("LOCK TABLE mms_messages IN ACCESS EXCLUSIVE MODE")
+    rows = conn.execute("DELETE FROM mms_messages WHERE qdir = 'mmsbox_outgoing' RETURNING id").fetchall()
+    return len(rows)
