@@ -1,0 +1,65 @@
+// Only this Compose project's MMSC API and sender are collected.
+discovery.docker "mmsc" {
+  host = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+  filter {
+    name = "label"
+    values = [
+      "com.docker.compose.project=" + sys.env("COMPOSE_PROJECT_NAME"),
+      "mms.logs=mmsc",
+    ]
+  }
+}
+
+discovery.relabel "mmsc" {
+  targets = discovery.docker.mmsc.targets
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label = "service_name"
+  }
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label = "compose_project"
+  }
+}
+
+loki.source.docker "mmsc" {
+  host = "unix:///var/run/docker.sock"
+  targets = discovery.relabel.mmsc.output
+  labels = {job = "mmsc", source = "lab"}
+  forward_to = [loki.process.lab.receiver]
+}
+
+loki.process "lab" {
+  stage.json {
+    expressions = {level = "level", event = "event"}
+  }
+  stage.labels {
+    values = {level = "", event = ""}
+  }
+  forward_to = [loki.write.local.receiver]
+}
+
+// Optional real Mbuni files, mounted read-only. Preserve raw lines because the
+// production format and timezone may differ. Loki timestamps mean collection time.
+local.file_match "mbuni" {
+  path_targets = [{
+    __path__ = "/var/log/mbuni/{mmsbox,mmsc,access-mmsbox,access-mmsc}.log",
+    job = "mmsc",
+    source = "mbuni_file",
+    service_name = "mbuni",
+    compose_project = sys.env("COMPOSE_PROJECT_NAME"),
+  }]
+  sync_period = "5s"
+}
+
+loki.source.file "mbuni" {
+  targets = local.file_match.mbuni.targets
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

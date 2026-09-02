@@ -1,0 +1,5 @@
+# Optional same-host native Alloy access; not a remote production ingress.
+services:
+  loki:
+    ports:
+      - "127.0.0.1:3100:3100"

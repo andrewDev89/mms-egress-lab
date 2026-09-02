@@ -37,6 +37,14 @@ If you change Python dependencies or Docker build inputs, rebuild with:
 docker compose up -d --build
 ```
 
+## MMSC-side Logs
+
+Alloy and Loki start with the lab. The dashboard's **MMSC-side Logs** panel shows sender rejections, scheduled retries, delivery failures, and successful deliveries alongside the queue metrics. Use **Log source** and **Log contains** to choose and search logs.
+
+For production, run the supplied Alloy host configuration as a systemd service on each Mbuni host. It continuously tails `mmsbox.log`, `mmsc.log`, `access-mmsbox.log`, and `access-mmsc.log` in `/var/log/mbuni`, adds the host and filename, and ships to a configured central Loki endpoint. No file copying is required.
+
+See [logging setup and host deployment instructions](docs/mbuni-logging.md). The local lab emits simulation logs; real Mbuni collection requires installing the host collector and providing your Loki endpoint.
+
 ## Grafana Validation
 
 After startup, open `http://localhost:3000` and log in with `admin` / `admin` if prompted.

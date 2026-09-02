@@ -13,6 +13,7 @@ from starlette.responses import HTMLResponse
 
 from . import config
 from .db import connect, init_db
+from .event_log import log_event
 from .metrics import (
     carrier_capacity,
     carrier_health,
@@ -211,6 +212,7 @@ def enqueue_message(payload: MessageCreate, response: Response):
         row = create_message(conn, payload.model_dump())
 
     messages_submitted.labels("accepted_for_delivery").inc()
+    log_event("api", "message_queued", message_id=row["id"])
     response.status_code = status.HTTP_202_ACCEPTED
     return {
         "message_id": row["id"],
@@ -243,6 +245,8 @@ def enqueue_message_burst(payload: BurstCreate, response: Response):
         conn.commit()
 
     messages_submitted.labels("accepted_for_delivery").inc(len(message_ids))
+    log_event("api", "burst_queued", count=len(message_ids),
+              first_message_id=message_ids[0], last_message_id=message_ids[-1])
     response.status_code = status.HTTP_202_ACCEPTED
     return {
         "operator": "tmobile",
@@ -303,6 +307,9 @@ def run_message_blast(job_id, payload):
                 sent += len(rows)
                 messages_submitted.labels("accepted_for_delivery").inc(len(rows))
                 accepted_for_delivery += len(rows)
+                log_event("api", "blast_chunk_queued", job_id=job_id, count=len(rows),
+                          first_message_id=ids[0] if ids else None,
+                          last_message_id=ids[-1] if ids else None)
 
                 elapsed = time.monotonic() - started_at
                 target_elapsed = sent / payload.rate_per_second
@@ -399,6 +406,7 @@ def get_message_blast(job_id: str):
 def clear_demo_messages():
     with connect() as conn:
         deleted = clear_messages(conn)
+    log_event("api", "queue_cleared", deleted_messages=deleted)
 
     for carrier in [*config.CARRIERS, "unassigned"]:
         for message_status in ("queued", "sending", "retry", "delivered", "failed"):
@@ -781,6 +789,8 @@ def update_capacity(carrier: str, payload: CapacityUpdate):
         raise HTTPException(status_code=404, detail="carrier not found")
     haproxy_state = sync_haproxy_capacity(total_tps)
     carrier_capacity.labels(carrier).set(payload.tps_capacity)
+    log_event("api", "bind_capacity_changed", carrier=carrier,
+              tps_capacity=payload.tps_capacity, healthy_total_tps=total_tps)
     data = serialize(row)
     data["haproxy"] = haproxy_state
     return data
@@ -796,6 +806,8 @@ def update_health(carrier: str, payload: HealthUpdate):
     sync_mock_bind_health(carrier, payload.healthy)
     haproxy_state = sync_haproxy_capacity(total_tps)
     carrier_health.labels(carrier).set(1 if payload.healthy else 0)
+    log_event("api", "bind_health_changed", carrier=carrier,
+              healthy=payload.healthy, healthy_total_tps=total_tps)
     data = serialize(row)
     data["haproxy"] = haproxy_state
     return data

@@ -1,0 +1,55 @@
+# Use after compose.integration.yml to validate the complete logging path.
+services:
+  mms-api:
+    labels:
+      mms.logs: mmsc
+  worker-tmobile-egress:
+    labels:
+      mms.logs: mmsc
+  loki:
+    image: grafana/loki:3.7.7
+    command: ["-config.file=/etc/loki/config.yml"]
+    volumes:
+      - ../loki/config.yml:/etc/loki/config.yml:ro
+  alloy:
+    image: grafana/alloy:v1.19.2
+    command: [run, --storage.path=/var/lib/alloy/data, /etc/alloy/config.alloy]
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME}
+    volumes:
+      - ../alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+  alloy-host:
+    image: grafana/alloy:v1.19.2
+    hostname: mbuni-test-host
+    command: [run, --server.http.listen-addr=0.0.0.0:12345, --storage.path=/var/lib/alloy/data, /etc/alloy/config.alloy]
+    environment:
+      LOKI_PUSH_URL: http://loki:3100/loki/api/v1/push
+    volumes:
+      - ../alloy/mbuni-host.alloy:/etc/alloy/config.alloy:ro
+      - mbuni-test-logs:/var/log/mbuni:ro
+    depends_on:
+      - loki
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - loki
+  tests:
+    environment:
+      MMS_LOG_TEST: '1'
+    volumes:
+      - mbuni-test-logs:/var/log/mbuni
+    depends_on:
+      - alloy
+      - alloy-host
+      - grafana
+volumes:
+  mbuni-test-logs:

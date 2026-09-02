@@ -1274,6 +1274,45 @@
       "title": "Rejected Attempts Since Worker Restart",
       "type": "stat",
       "description": "Cumulative HTTP rejection attempts, including repeats for the same message. This does not reset when the queue is cleared. Use the rejection-rate graph for current activity."
+    },
+    {
+      "id": 16,
+      "type": "logs",
+      "title": "MMSC-side Logs",
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 24,
+        "h": 14
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Alloy collects the lab MMSC API and sender logs. Choose Mbuni files for real mounted logs; these use collection time and preserve the original timestamp in the line. Search for message_id, retry_scheduled, delivered, or a literal log fragment. Lab logs are a simulation, not output from a Mbuni binary.",
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{job=\"mmsc\", source=~\"${mmsc_log_source:regex}\"} |= ${mmsc_log_search:doublequote}",
+          "queryType": "range",
+          "editorMode": "code",
+          "maxLines": 1000
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": true,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
     }
   ],
   "preload": false,
@@ -1285,7 +1324,52 @@
     "queue"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "mmsc_log_source",
+        "label": "Log source",
+        "type": "custom",
+        "query": "Lab MMSC : lab, Mbuni files : mbuni_file",
+        "current": {
+          "text": "Lab MMSC",
+          "value": "lab"
+        },
+        "options": [
+          {
+            "text": "Lab MMSC",
+            "value": "lab",
+            "selected": true
+          },
+          {
+            "text": "Mbuni files",
+            "value": "mbuni_file",
+            "selected": false
+          }
+        ],
+        "includeAll": true,
+        "allValue": ".*",
+        "multi": false,
+        "hide": 0
+      },
+      {
+        "name": "mmsc_log_search",
+        "label": "Log contains",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "text": "",
+            "value": "",
+            "selected": true
+          }
+        ],
+        "hide": 0
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
@@ -1295,5 +1379,5 @@
   "timezone": "browser",
   "title": "MMS Egress Lab - T-Mobile Queue",
   "uid": "mms-egress-tmobile",
-  "version": 3
+  "version": 4
 }
