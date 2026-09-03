@@ -58,6 +58,109 @@ Partial capacity loss does not necessarily cause rejected requests: offered traf
 
 HAProxy uses an aggregate five-second rolling allowance and returns errors; it does not send a target TPS value to Mbuni. Mbuni decides when to try again. The SDG mocks validate multipart MM7 `SubmitReq` and return a correlated SOAP `SubmitRsp` with status 1000. This proves SDG acceptance, not handset delivery.
 
+## How HAProxy controls egress: counting, throttling, and retries
+
+**HAProxy can count HTTP requests and enforce a rate limit. Mbuni owns the persistent MMS queue and decides when to retry.** Together, those behaviors let this lab protect the SDG endpoints while retaining messages upstream during a capacity reduction. HAProxy does not need to parse SOAP or understand an MMS delivery receipt to apply the HTTP limit. Native stick tables and request rules provide the counting and enforcement; this configuration uses no Lua script or custom HAProxy module. HAProxy documents this behavior in its [traffic policing guide](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/security/traffic-policing/).
+
+| Component | Responsibility in this lab |
+| --- | --- |
+| Demo control API | Sums the capacities of binds marked healthy in PostgreSQL and updates HAProxy's allowance. |
+| HAProxy | Tracks HTTP requests, compares the measured rate with the allowance, returns 429 for excess attempts, and routes admitted requests to healthy SDGs. |
+| Mbuni | Stores MMS messages, constructs SOAP requests, interprets the response, and schedules retries or terminal failure. |
+| PostgreSQL | Stores Mbuni's active/archived messages and the separate demo bind settings. |
+| Prometheus / Grafana | Observe counters and queue state; they do not enforce the limit. |
+
+### What HAProxy counts
+
+The relevant rules in [haproxy.cfg](haproxy.cfg) are:
+
+```haproxy
+stick-table type string size 100k expire 15s store http_req_rate(5s)
+http-request set-var(req.rate_limit) int(1),map_int(/usr/local/etc/haproxy/capacity.map,100)
+http-request set-var(req.request_rate) str(carriers),table_http_req_rate()
+acl rate_abuse var(req.rate_limit),sub(req.request_rate) le 0
+http-request track-sc0 str(carriers) unless rate_abuse
+http-request deny deny_status 429 if rate_abuse
+```
+
+A **stick table** is HAProxy's in-memory state table. Here, every request uses the same string key, `carriers`, so all traffic through this frontend shares one budget. It is not a separate allowance per client IP or SDG. `size 100k` is the maximum table entry count, not a TPS limit; `expire 15s` is the entry inactivity expiry, not the measurement window.
+
+`http_req_rate(5s)` maintains a request-frequency counter. Its value is expressed as requests over the configured five-second period; it is not already normalized to requests per second. `table_http_req_rate()` reads that value for `carriers` and returns zero when the entry does not exist. The [HAProxy configuration manual](https://docs.haproxy.org/3.2/configuration.html) specifies these units under `http_req_rate` and `table_http_req_rate`.
+
+For each HTTP attempt, the rules read the allowance and current counter, then check whether `allowance - observed_count <= 0`. If the check is true, HAProxy returns **429 Too Many Requests** before forwarding to an SDG. Otherwise, `track-sc0` tracks the request and processing continues to the backend. Tracking is conditional so attempts rejected by this rate rule do not consume more of the admission budget. A zero allowance rejects even the first request, when the table is empty.
+
+Here, “admitted” means passed the proxy's rate check. An admitted request can still fail downstream, including with a 503; this counter does not prove carrier acceptance. It counts HTTP attempts, not unique message IDs, MIME parts, bytes, or handset deliveries. The demo submits one recipient per message; a production SOAP request containing multiple recipients would still be one HTTP request.
+
+### How the allowance changes when capacity changes
+
+The control API computes:
+
+```text
+available TPS = sum(configured TPS for binds marked healthy)
+HAProxy threshold = available TPS × 5 seconds
+```
+
+| Configured healthy capacity | Aggregate TPS budget | Map threshold, in requests per 5 seconds |
+| --- | ---: | ---: |
+| SDG1: 300, SDG2: 300 | 600 | 3,000 |
+| SDG1: 300, SDG2: down | 300 | 1,500 |
+| Both down | 0 | 0 |
+
+[The API's capacity synchronization](mms_queue/api.py) updates map key `1` using HAProxy's Runtime API. For example, it sends this command for a 600 TPS budget:
+
+```text
+set map /usr/local/etc/haproxy/capacity.map 1 3000
+```
+
+The map key `1` selects the configured limit; the stick-table key `carriers` identifies the tracked traffic. They are different keys in different data structures. Runtime updates take effect without reloading HAProxy; see the official [`set map` reference](https://www.haproxy.com/documentation/haproxy-runtime-api/reference/set-map/). The control endpoints synchronize immediately, and a background loop reapplies the database value every 10 seconds by default. The checked-in map starts at `1 100` until synchronization; runtime edits do not rewrite that file. The API's five-second multiplier must remain aligned with `http_req_rate(5s)`.
+
+**Backend health checks and budget calculation are separate.** HAProxy probes `/health` to choose eligible servers. This lab's control page also changes the stored healthy flag, mock endpoint health, and aggregate map allowance. An outage outside the control page does not automatically recalculate the database-derived allowance: HAProxy can exclude a failed backend while the allowance remains unchanged. If no backend is available and a request passes the rate check, it can receive **503 Service Unavailable**. If the allowance is zero, the earlier rate rule returns 429 instead.
+
+### How rejection becomes a retry
+
+```text
+Mbuni sends a SOAP attempt → HAProxy checks the shared request budget
+  Budget available → forward to an SDG → return its response to Mbuni
+  Budget exhausted → return HTTP 429 → Mbuni retains the message and schedules a retry
+  Later retry      → a new HTTP attempt → the same budget check runs again
+```
+
+The public Mbuni build's [SOAP sender and queue runner](https://github.com/fredounnet/mbuni/blob/b8054f9ddfc48a8f2ec911adabd5309472bcf9f4/mmsbox/bearerbox.c) handle failed HTTP responses and update the native queue. The lab's integration scenarios exercise both 429 and 503 followed by recovery. With the default two-second backoff, successive retry delays grow approximately as 2, 4, 6 seconds, and so on, subject to queue polling and processing time. Mbuni also enforces its maximum attempts and message expiry.
+
+HAProxy does not store the rejected MMS for later or resubmit it on a timer. Its own backend connection retry features are distinct from Mbuni's persistent message retry mechanism. This configuration supplies no `Retry-After` header and does not require Mbuni to interpret one. The application-level backpressure signal is the failed HTTP attempt. Mbuni can continue offering attempts while HAProxy protects the backend; it is not receiving a command to change its configured TPS.
+
+For the private Skycore build, the vendor needs to confirm which HTTP/MM7 failures preserve a message for retry and what retry settings apply. If that build treats a 429 as terminal, HAProxy can still reject excess traffic, but the required retain-and-retry behavior would not follow. A timeout after forwarding also cannot establish whether an SDG accepted the message; this mechanism does not provide exactly-once delivery.
+
+### What this demonstrates, and its boundaries
+
+- **Rate policing, not evenly spaced sending.** The five-second frequency counter permits bursts. It is not a guarantee of precisely 600 requests in every individual second. Concurrent requests can also race between reading the counter and updating it; this is not a strict atomic quota.
+- **One aggregate budget.** Round-robin routing does not independently enforce each SDG's configured TPS. Unequal backend capacities need a separate routing/limiting policy. Setting a bind's capacity to zero only changes the sum; use its health control to take it out of service.
+- **One HAProxy instance.** This deployment has no shared quota across multiple proxies. Independent instances would maintain independent counters. Table state is in memory; restart/failover behavior would need to be addressed for a production-wide limit.
+- **A limit does not generate load.** If Mbuni offers only 160 attempts/sec against a 600 TPS budget, HAProxy does not raise it to 600. Mbuni's ready queue, retry timing, SOAP serialization, and HTTP/SQL latency affect the offered rate.
+
+The dashboard separates these observations: **Completed send attempts/sec** is the sum of rates from Mbuni's native sent/error counters; it includes repeated attempts and other send failures. **SDG accepted/sec** measures successful mock submissions. **HAProxy HTTP Errors** shows response classes (4xx includes 429; 5xx includes 503). Native active queue depth shows messages still waiting. None of those values alone is the configured allowance.
+
+### Inspect the counting directly
+
+The following read-only command shows the actual map and stick table in the running lab. It does not change capacity or submit traffic:
+
+```sh
+docker compose exec -T mms-api python - <<'PY'
+import socket
+for command in ("show map /usr/local/etc/haproxy/capacity.map", "show table fe_http"):
+    print(command)
+    with socket.create_connection(("haproxy", 9999), timeout=5) as connection:
+        connection.sendall((command + "\n").encode())
+        connection.shutdown(socket.SHUT_WR)
+        while data := connection.recv(65536):
+            print(data.decode(), end="")
+PY
+```
+
+During traffic, the table contains `key=carriers` and a field such as `http_req_rate(5000)=...`; the map shows key `1` and the current allowance. After inactivity, the table entry can expire, which is normal. This is a direct view of HAProxy's counting, independent of Grafana. The official [`show table` reference](https://www.haproxy.com/documentation/haproxy-runtime-api/reference/show-table/) describes the output. The TCP admin socket used here is a lab convenience, not a production exposure recommendation.
+
+To demonstrate the full mechanism, use the [backpressure exercise above](#show-backpressure): offer traffic, lower capacity, observe 429 responses and a retained native queue, then restore capacity and observe Mbuni retrying successfully. This proves the combination of HAProxy admission control and Mbuni retries; it does not imply HAProxy owns the MMS queue.
+
 ## Sender and retry settings
 
 Set these in `.env`, then recreate the Mbuni container with `docker compose up -d --build mbuni`:
