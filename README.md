@@ -28,6 +28,23 @@ docker compose up -d --build --remove-orphans
 
 The first build downloads and compiles Mbuni and takes longer than subsequent starts. The public source is pinned to the `1.6.0` tag commit and verified by SHA-256; see [the build notes](mbuni/README.md).
 
+### Apple Silicon Macs
+
+Mbuni builds for the Docker host's architecture: `linux/arm64` on Apple Silicon and `linux/amd64` on Intel/AMD. Its old bundled CPU-detection scripts are replaced during the build so they recognize ARM64. You do not need to force Mbuni to run as `linux/amd64`.
+
+If an earlier build failed with `config.guess: unable to guess system type`, update this checkout and rebuild. If you previously added `platform: linux/amd64` to Mbuni in a local Compose override, remove that setting first. In your Mac terminal, run:
+
+```sh
+unset DOCKER_DEFAULT_PLATFORM
+docker compose build --pull mbuni
+docker compose up -d --build --remove-orphans
+docker compose exec mbuni uname -m
+```
+
+The last command should print `aarch64` on Apple Silicon. These commands preserve the database and other named volumes. If startup still fails, collect `docker compose ps -a` and `docker compose logs --tail=100 mbuni db-init`; an architecture warning alone does not identify which service failed.
+
+### Open the demo
+
 - [Control page](http://localhost:8000/demo/control)
 - [Grafana](http://localhost:3000), initially `admin` / `admin`
 - [API docs](http://localhost:8000/docs)
