@@ -5,6 +5,9 @@ RUN curl -fsSL https://codeload.github.com/fredounnet/mbuni/tar.gz/b8054f9ddfc48
  && echo 'af646c1aba7d1eb62b0681e6ee3a931f888ddf7fdd779385b38c3c976e390223  mbuni.tar.gz' | sha256sum -c - \
  && tar xzf mbuni.tar.gz --strip-components=1
 FROM source AS build
+# The bundled 2006 helpers cannot identify Linux ARM64 (Apple Silicon's container
+# architecture). Use Debian's maintained helpers, installed with automake.
+RUN cp /usr/share/misc/config.guess /usr/share/misc/config.sub autotools/
 RUN sed -i 's/\bbool\b/boolean_value/g' mmlib/mms_cfg.c
 RUN sed -i 's/\buse_global_/conn_use_global_/g' mmlib/mms_util.c
 RUN ./configure --prefix=/opt/mbuni --with-kannel-dir=/usr --with-pgsql-dir=/usr --disable-ssl --disable-shared && make -j4 && make install

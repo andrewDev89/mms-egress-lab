@@ -15,4 +15,8 @@ There are no changes to upstream SOAP construction, routing, delivery, retry tim
 
 `tables.sql` is copied from the same upstream source. The image includes the patched source and upstream license files in `/opt/mbuni/share/source`. The source is GPL with upstream exceptions; retain the supplied licenses when redistributing. This older public build is for a demo and does not establish compatibility with Skycore's private implementation.
 
-On Apple Silicon, the base image and Debian Kannel package support native arm64 builds. This change was exercised on Linux amd64; an arm64 build has not been verified here.
+The image uses the target architecture's Debian and Kannel packages. Before configuring Mbuni, it replaces upstream's 2006 `autotools/config.guess` and `config.sub` with Debian's maintained copies (installed by the `automake` dependency). The old `config.guess` fails on `aarch64` with `unable to guess system type`. This updates build-time platform detection without changing Mbuni's sending or retry behavior. The replacement helpers are also included in the patched source archive inside the image.
+
+See [Apple Silicon startup and rebuild instructions](../README.md#apple-silicon-macs). Prefer a native ARM64 image on Apple Silicon for throughput demos; running an AMD64 image through emulation adds overhead.
+
+Validation: the image builds for both `linux/amd64` and `linux/arm64`. The existing integration suite passed with the ARM64 Mbuni image running under emulation on an AMD64 Linux host (11 passed; two optional logging tests skipped), including native PostgreSQL queueing, bundled image submission, HTTP 429/503 retries, recovery, and retry exhaustion. The surrounding test services ran as AMD64. Docker Desktop on physical Apple Silicon has not been tested here.
