@@ -1,3 +1,4 @@
+import base64
 import json
 import socket
 import threading
@@ -42,6 +43,8 @@ app = FastAPI(
     version="0.1.0",
 )
 
+DEMO_MEDIA_URL = "http://mms-api:8000/demo/media/pixel.gif"
+
 haproxy_sync_started = False
 
 
@@ -49,7 +52,11 @@ class MessageCreate(BaseModel):
     model_config = {"extra": "forbid"}
     sender: str = Field(..., examples=["12065550100"])
     recipient: str = Field(..., examples=["12065550199"])
-    media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
+    media_url: str | None = Field(
+        DEMO_MEDIA_URL,
+        examples=[DEMO_MEDIA_URL],
+        description="Uses the bundled demo image automatically. Set null for text-only MMS, or provide a URL reachable from Mbuni.",
+    )
     text: str | None = Field(None, examples=["Demo MMS payload"])
 
 
@@ -58,7 +65,11 @@ class BurstCreate(BaseModel):
     count: int = Field(..., ge=1, le=5000, examples=[1000])
     sender: str = Field("12065550100", examples=["12065550100"])
     recipient_prefix: str = Field("1206555", examples=["1206555"])
-    media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
+    media_url: str | None = Field(
+        DEMO_MEDIA_URL,
+        examples=[DEMO_MEDIA_URL],
+        description="Uses the bundled demo image automatically. Set null for text-only MMS, or provide a URL reachable from Mbuni.",
+    )
     text: str = Field("Demo MMS payload", examples=["Demo MMS payload"])
 
 
@@ -78,7 +89,11 @@ class BlastCreate(BaseModel):
     )
     sender: str = Field("12065550100", examples=["12065550100"])
     recipient_prefix: str = Field("120655", examples=["120655"])
-    media_url: str | None = Field(None, examples=["https://example.com/image.jpg"])
+    media_url: str | None = Field(
+        DEMO_MEDIA_URL,
+        examples=[DEMO_MEDIA_URL],
+        description="Uses the bundled demo image automatically. Set null for text-only MMS, or provide a URL reachable from Mbuni.",
+    )
     text: str = Field("Traditional MMS blast demo", examples=["Traditional MMS blast demo"])
 
 
@@ -187,6 +202,15 @@ def startup():
     if not haproxy_sync_started:
         threading.Thread(target=haproxy_capacity_sync_loop, daemon=True).start()
         haproxy_sync_started = True
+
+
+@app.get("/demo/media/pixel.gif", response_class=Response)
+async def demo_media():
+    """Bundled 1×1 GIF for exercising native media fetching without Internet access."""
+    return Response(
+        base64.b64decode("R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="),
+        media_type="image/gif",
+    )
 
 
 @app.post("/messages")
@@ -533,7 +557,7 @@ def demo_control():
 
     <section class="panel">
       <h2>Traffic Burst</h2>
-      <p>Messages enter real Mbuni even when binds are down. Mbuni sends MM7/SOAP and manages retries. Watch native queue depth, HAProxy HTTP errors, and Mbuni logs in Grafana.</p>
+      <p>The bundled demo image is included automatically. Messages enter real Mbuni even when binds are down. Mbuni sends MM7/SOAP and manages retries. Watch native queue depth, HAProxy HTTP errors, and Mbuni logs in Grafana.</p>
       <div class="capacity">
         <input id="burstCount" type="number" min="1" max="5000" value="1000">
         <button onclick="sendBurst()">Send Burst</button>

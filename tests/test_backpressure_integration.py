@@ -115,34 +115,23 @@ def test_native_soap_backpressure_and_recovery():
         set_bind(bind, True, 20)
 
 
-def test_native_media_url_submission():
-    import base64
-    import threading
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    pixel = base64.b64decode('R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==')
-
-    class Media(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.send_header('Content-Type', 'image/gif')
-            self.send_header('Content-Length', str(len(pixel)))
-            self.end_headers()
-            self.wfile.write(pixel)
-
-    server = ThreadingHTTPServer(('0.0.0.0', 8099), Media)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        before = metric('mbuni_mt_sent_total')
-        code, result = request('/messages', {
-            'sender':'12065550100', 'recipient':'12065550199',
-            'media_url':'http://tests:8099/pixel.gif', 'text':'Native media test',
-        })
-        assert code == 202, result
-        eventually(lambda: metric('mbuni_mt_sent_total') >= before + 1)
-        eventually(lambda: request('/messages/' + result['message_id'])[1]['status'] == 'archived')
-    finally:
-        server.shutdown()
-        server.server_close()
+def test_native_default_image_submission():
+    for bind in ('tmobile-sdg1','tmobile-sdg2'):
+        set_bind(bind, True, 20)
+    status, schema = request('/openapi.json')
+    assert status == 200
+    for name in ('MessageCreate', 'BurstCreate', 'BlastCreate'):
+        media = schema['components']['schemas'][name]['properties']['media_url']
+        assert media['default'] == 'http://mms-api:8000/demo/media/pixel.gif'
+    # The user does not need to supply a URL, including from the control page.
+    before = metric('mbuni_mt_sent_total')
+    code, result = request('/messages', {
+        'sender':'12065550100', 'recipient':'12065550199',
+        'text':'Automatic native image test',
+    })
+    assert code == 202, result
+    eventually(lambda: metric('mbuni_mt_sent_total') >= before + 1)
+    eventually(lambda: request('/messages/' + result['message_id'])[1]['status'] == 'archived')
 
 
 def test_native_blast_and_queue_clear_preserve_archives():
@@ -159,3 +148,14 @@ def test_native_blast_and_queue_clear_preserve_archives():
     assert sum(r['status'] == 'archived' for r in native_rows()) == archived_before
     for bind in ('tmobile-sdg1','tmobile-sdg2'):
         set_bind(bind, True, 20)
+
+
+def test_native_missing_media_does_not_confirm_acceptance():
+    before = metric('mms_messages_submitted_total')
+    code, result = request('/messages', {
+        'sender':'12065550100', 'recipient':'12065550199',
+        'media_url':'http://mms-api:8000/demo/media/not-found.gif',
+    })
+    assert code == 502, result
+    assert 'could not fetch media_url' in result['detail']
+    assert metric('mms_messages_submitted_total') == before
