@@ -15,7 +15,7 @@ Mbuni log files → Alloy → Loki → Grafana
 Native queue / Mbuni admin status / HAProxy → Prometheus → Grafana
 ```
 
-This is the public Mbuni code, not Skycore's private build. The image builds both `mmsc` and `mmsbox`; this HTTP/SOAP egress scenario runs **mmsbox**, the Mbuni component that supports outbound `type=soap`. It does not simulate handset MM1, WAP push, an SMPP bind, or final handset delivery. In this lab, “bind down” means an unavailable mock SDG HTTP endpoint.
+This is the public Mbuni code. The image builds both `mmsc` and `mmsbox`; this HTTP/SOAP egress scenario runs **mmsbox**, the Mbuni component that supports outbound `type=soap`. It does not simulate handset MM1, WAP push, an SMPP bind, or final handset delivery. In this lab, “bind down” means an unavailable mock SDG HTTP endpoint.
 
 ## Start on your Mac
 
