@@ -44,6 +44,10 @@ def init_db():
             if conn.execute("SELECT to_regclass('public.mms_messages') AS name").fetchone()["name"] is None:
                 from pathlib import Path
                 conn.execute(Path("/app/mbuni/tables.sql").read_text())
+            # Native Mbuni reads, replaces, and archives headers by qid on every
+            # attempt. PostgreSQL does not index the referencing side of an FK.
+            # Apply to existing databases too; keep tables.sql verbatim upstream.
+            conn.execute("CREATE INDEX IF NOT EXISTS mms_message_headers_qid_idx ON mms_message_headers (qid)")
             conn.execute(NATIVE_VIEW)
             for carrier in config.CARRIERS:
                 conn.execute(

@@ -15,6 +15,8 @@ There are no changes to upstream SOAP construction, routing, delivery, retry tim
 
 `tables.sql` is copied from the same upstream source. The image includes the patched source and upstream license files in `/opt/mbuni/share/source`. The source is GPL with upstream exceptions; retain the supplied licenses when redistributing. This older public build is for a demo and does not establish compatibility with Skycore's private implementation.
 
+The lab's `init_db()` adds `mms_message_headers_qid_idx` on the active header table's `qid` column, including on existing databases. The upstream SQL file remains unchanged. Native header reads, rewrites, archiving, and cascading queue deletion all use this key; indexing it avoids repeated full-table scans as the backlog grows. See [database CPU and upgrade instructions](../README.md#postgresql-cpu-during-large-queue-tests).
+
 The image uses the target architecture's Debian and Kannel packages. Before configuring Mbuni, it replaces upstream's 2006 `autotools/config.guess` and `config.sub` with Debian's maintained copies (installed by the `automake` dependency). The old `config.guess` fails on `aarch64` with `unable to guess system type`. This updates build-time platform detection without changing Mbuni's sending or retry behavior. The replacement helpers are also included in the patched source archive inside the image.
 
 See [Apple Silicon startup and rebuild instructions](../README.md#apple-silicon-macs). Prefer a native ARM64 image on Apple Silicon for throughput demos; running an AMD64 image through emulation adds overhead.

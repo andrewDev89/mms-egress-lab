@@ -64,6 +64,31 @@ docker compose restart mbuni mms-api
 
 A restart does not make old data new. The control page's Clear Queue action deletes active native outgoing messages; it preserves archives and historical Prometheus samples, and cannot recall HTTP requests already in flight.
 
+### PostgreSQL CPU during large queue tests
+
+Docker CPU percentages add usage across cores: around 600% means roughly six cores. A large demo queue can generate substantial database work, but the original Mbuni schema also omits an index on `mms_message_headers.qid`. Mbuni looks up, replaces, and archives headers by that column on every attempt. Without the index, these operations can repeatedly scan the whole active header table. The lab's database initialization now adds this index for both new and existing databases without changing queue contents.
+
+To upgrade an existing lab, stop the writers before applying the startup schema change (index creation can briefly block header writes):
+
+```sh
+docker compose stop mms-api mbuni
+git pull --ff-only
+docker compose build db-init mms-api
+docker compose run --rm --no-deps db-init
+docker compose up -d --build --remove-orphans
+```
+
+The native queue and archives are preserved. An unfinished API traffic-generation job is not resumed after stopping the API; messages already accepted by Mbuni remain queued.
+
+For an already running lab that needs the index before updating the code, run this single statement separately from any transaction:
+
+```sh
+docker compose exec -T psql-mms psql -U mms -d psql_mms -v ON_ERROR_STOP=1 -c \
+  "CREATE INDEX CONCURRENTLY IF NOT EXISTS mms_message_headers_qid_idx ON mms_message_headers (qid);"
+```
+
+The concurrent build permits normal queue writes but consumes resources while it runs. A successful index build should help header operations as the queue grows; it is not a guarantee of a particular CPU percentage or end-to-end TPS. It does not index or clear the archives. If database CPU remains high, inspect active queries and check that `docker compose exec psql-mms uname -m` reports `aarch64` on Apple Silicon.
+
 ## Show backpressure
 
 1. Send a small burst, such as 100 messages, and confirm SDG acceptance and native Mbuni logs.
