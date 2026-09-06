@@ -2,20 +2,23 @@
 
 This demo runs **real open-source Mbuni 1.6.0**. Mbuni's `mmsbox` executable owns the PostgreSQL queue, constructs MM7/SOAP messages, sends them through HAProxy, and schedules retries. The Python service provides the demo control page, traffic generation, and a read-only view of the native queue. The two SDG endpoints remain mocks.
 
-```text
-Demo control / REST API → Mbuni SendMMS → native PostgreSQL queue
-                                              ↓
-                                     Mbuni mmsbox (type=soap)
-                                              ↓
-                                          HAProxy
-                                              ↓
-                                   SDG1 / SDG2 MM7 mocks
-
-Mbuni log files → Alloy → Loki → Grafana
-Native queue / Mbuni admin status / HAProxy → Prometheus → Grafana
-```
-
 This is the public Mbuni code. The image builds both `mmsc` and `mmsbox`; this HTTP/SOAP egress scenario runs **mmsbox**, the Mbuni component that supports outbound `type=soap`. It does not simulate handset MM1, WAP push, an SMPP bind, or final handset delivery. In this lab, “bind down” means an unavailable mock SDG HTTP endpoint.
+
+## Architecture
+
+### Current lab deployment
+
+[![Current MMS egress lab architecture in dark theme, showing the control API, Mbuni, PostgreSQL queue, HAProxy, both SDG mocks, and metrics and log pipelines.](docs/architecture/current-lab-dark.png)](docs/architecture/current-lab-dark.png)
+
+Solid green arrows show message operations, pink dashed arrows show capacity control, and purple dashed arrows show telemetry. HAProxy returns **429** before forwarding when its allowance is exhausted; **Mbuni owns the persistent queue and schedules retries**.
+
+### Proposed multi-AZ architecture
+
+[![Proposed multi-AZ MMS egress architecture in dark theme, showing an internal NLB, HAProxy in three availability zones, a capacity controller, and the SDG endpoints.](docs/architecture/proposed-multi-az-dark.png)](docs/architecture/proposed-multi-az-dark.png)
+
+This is a proposal, not the current Compose deployment. **Mbuni can remain in AZs A and B** while the internal NLB distributes connections to HAProxy in **AZs A, B, and C** with cross-zone balancing enabled. A third Mbuni AZ is not required. The illustrated 600 TPS carrier allowance is shared across the proxies, not assigned in full to each one.
+
+Select either image to view it at full resolution. [Open the interactive diagrams](https://mms-egress-lab-diagrams.andvan.chatgpt.site) for zoom, tracing, and export; the interactive site is private and requires the owner's ChatGPT account.
 
 ## Start on your Mac
 
