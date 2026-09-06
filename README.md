@@ -2,6 +2,8 @@
 
 This demo runs **real open-source Mbuni 1.6.0**. Mbuni's `mmsbox` executable owns the PostgreSQL queue, constructs MM7/SOAP messages, sends them through HAProxy, and schedules retries. The Python service provides the demo control page, traffic generation, and a read-only view of the native queue. The two SDG endpoints remain mocks.
 
+This is the public Mbuni code. The image builds both `mmsc` and `mmsbox`; this HTTP/SOAP egress scenario runs **mmsbox**, the Mbuni component that supports outbound `type=soap`. It does not simulate handset MM1, WAP push, an SMPP bind, or final handset delivery. In this lab, “bind down” means an unavailable mock SDG HTTP endpoint.
+
 ## Architecture
 
 ### Current lab deployment
@@ -17,9 +19,6 @@ Solid green arrows show message operations, pink dashed arrows show capacity con
 This is a proposal, not the current Compose deployment. **Mbuni can remain in AZs A and B** while the internal NLB distributes connections to HAProxy in **AZs A, B, and C** with cross-zone balancing enabled. A third Mbuni AZ is not required. The illustrated 600 TPS carrier allowance is shared across the proxies, not assigned in full to each one.
 
 Select either image to view it at full resolution. [Open the interactive diagrams](https://mms-egress-lab-diagrams.andvan.chatgpt.site) for zoom, tracing, and export; the interactive site is private and requires the owner's ChatGPT account.
-
-
-This is the public Mbuni code. The image builds both `mmsc` and `mmsbox`; this HTTP/SOAP egress scenario runs **mmsbox**, the Mbuni component that supports outbound `type=soap`. It does not simulate handset MM1, WAP push, an SMPP bind, or final handset delivery. In this lab, “bind down” means an unavailable mock SDG HTTP endpoint.
 
 ## Start on your Mac
 
